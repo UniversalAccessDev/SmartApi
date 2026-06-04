@@ -1,0 +1,188 @@
+# Smart API
+
+> Smart API turns plain-English QA steps into clean, reliable Playwright TypeScript automation using a specialized rules engine.
+
+A standalone TypeScript + Node.js backend that accepts a test name, a target URL, and plain-English QA steps, then returns CI-ready Playwright TypeScript code.
+
+- **No external AI** — generation is powered by a deterministic rules engine (`smart-api-playwright-rules-v1`).
+- **No database** — stateless and pure; the same input always yields the same output.
+- **Standalone** — not coupled to any other project.
+
+## Tech stack
+
+Node.js · TypeScript · Express · Zod · dotenv · cors · Prettier
+
+## Project structure
+
+```
+src/
+  index.ts                     # Server entrypoint (binds the port)
+  app.ts                       # Express app factory (no port binding — testable)
+  constants.ts                 # Product name, model name, tagline
+  config/
+    env.ts                     # Zod-validated environment config
+  middleware/
+    asyncHandler.ts            # Async route -> error forwarding
+    errorHandler.ts            # 404 + centralized error envelope
+  routes/
+    health.routes.ts           # GET /health
+    playwright.routes.ts       # POST /api/v1/playwright/generate
+  schemas/
+    generate.schema.ts         # Zod request contract
+  engine/                      # The deterministic rules engine
+    types.ts                   # Rule / output / result types
+    rulesEngine.ts             # Runs steps through the rule registry
+    codeBuilder.ts             # Assembles the final test file
+    rules/
+      index.ts                 # Ordered rule registry (priority matters)
+      navigation.ts            # goto / navigate
+      assertions.ts            # visible / url / title / contains / wait-for
+      forms.ts                 # fill / check / uncheck / select
+      interaction.ts           # press-key / hover / close-overlay / click
+  services/
+    generator.service.ts       # Pipeline: engine -> build -> format -> validate
+    validator.service.ts       # Static quality checks on generated code
+  utils/
+    formatCode.ts              # Prettier formatting
+    literal.ts                 # Safe TS string literals
+    slug.ts                    # Screenshot filename slugs
+```
+
+## Setup
+
+```bash
+npm install
+cp .env.example .env   # PORT=4000
+```
+
+## Run
+
+```bash
+npm run dev     # watch mode (ts-node-dev)
+npm run build   # compile to dist/
+npm start       # run compiled build
+```
+
+Other scripts: `npm run typecheck`, `npm run format`, `npm run format:check`.
+
+## Tests
+
+The rules engine and pipeline are covered by a Vitest suite (`tests/`):
+
+```bash
+npm test          # run once
+npm run test:watch  # watch mode
+```
+
+Coverage includes every rule (navigation, click/role inference, key presses,
+fills, check/uncheck/select, assertions, wait→assertion, hover, overlay close),
+engine aggregation (confidence averaging, strategy ordering, assumption dedup,
+unmatched handling), the validator (including the XPath false-positive
+regression), the full async generation pipeline (determinism, screenshots,
+the Escape flag, JS fallback), and the Zod request schema.
+
+## API
+
+### `GET /health`
+
+Liveness probe — returns service name, model, and uptime.
+
+### `POST /api/v1/playwright/generate`
+
+**Request body**
+
+| Field                     | Type     | Required | Default        | Notes                                     |
+| ------------------------- | -------- | -------- | -------------- | ----------------------------------------- |
+| `testName`                | string   | yes      | —              | Used as the `test(...)` title             |
+| `url`                     | string   | yes      | —              | Must be a valid URL; the initial `goto`   |
+| `steps`                   | string[] | yes      | —              | Plain-English QA steps (min 1)            |
+| `language`                | enum     | no       | `"typescript"` | `typescript` \| `javascript`              |
+| `includeScreenshots`      | boolean  | no       | `false`        | Adds a `page.screenshot(...)` at the end  |
+| `closeOverlaysWithEscape` | boolean  | no       | `false`        | "close/dismiss" steps use the Escape key  |
+
+**Response**
+
+```json
+{
+  "success": true,
+  "model": "smart-api-playwright-rules-v1",
+  "tagline": "Smart API turns plain-English QA steps into clean, reliable Playwright TypeScript automation using a specialized rules engine.",
+  "language": "typescript",
+  "code": "import { test, expect } from '@playwright/test' ...",
+  "locatorStrategy": "role-label-text",
+  "confidenceScore": 0.78,
+  "assumptions": ["..."],
+  "warnings": [],
+  "validation": { "valid": true, "warnings": [] },
+  "meta": {
+    "stepsAnalyzed": [{ "step": "Click Add Contact", "rule": "click", "confidence": 0.7 }],
+    "unmatchedSteps": [],
+    "ruleEngineWarnings": []
+  }
+}
+```
+
+## Test it with curl
+
+```bash
+curl http://localhost:4000/health
+
+curl -X POST http://localhost:4000/api/v1/playwright/generate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "testName": "Add new contact",
+    "url": "https://atwallabs.com/demo/crm",
+    "steps": [
+      "Click Add Contact",
+      "Enter Full Name as Jane Doe",
+      "Enter Email as jane@test.com",
+      "Enter Company as TestCo",
+      "Click Add Contact",
+      "Verify Jane Doe appears in the contacts list"
+    ],
+    "language": "typescript",
+    "includeScreenshots": true,
+    "closeOverlaysWithEscape": true
+  }'
+```
+
+## How the rules engine works
+
+Each step is matched against an **ordered registry of rules** (`src/engine/rules/`).
+The first rule that matches wins, so specific rules (assertions, key presses) are
+tried before the generic `click` fallback. Every rule reports:
+
+- the Playwright statement(s) to emit,
+- the locator strategy used (`role`, `label`, `text`, …),
+- any assumptions a reviewer should verify,
+- a confidence score (averaged across steps into `confidenceScore`).
+
+Supported phrasings include: `go to <url>`, `click <name> [button|link|tab]`,
+`enter <field> as <value>` / `fill <field> with <value>` / `type <value> in <field>`,
+`check/uncheck <name>`, `select <option> from <field>`, `press <key>`,
+`hover over <name>`, `close/dismiss the <modal>`, `verify <text> appears`,
+`<text> should be visible`, `verify url is <url>`, and `wait for <text>`
+(translated into a web-first assertion — **never** `waitForTimeout`).
+
+### Extending it
+
+Add a new `StepRule` in `src/engine/rules/` and register it in `rules/index.ts`
+at the appropriate priority. No other file needs to change.
+
+## Generation guarantees
+
+The validator (`src/services/validator.service.ts`) checks that generated code:
+
+- imports `@playwright/test`,
+- declares a `test()` block,
+- contains at least one `expect()` assertion,
+- never uses `page.waitForTimeout()`,
+- avoids XPath selectors,
+- has no unmapped (TODO) steps.
+
+Any failed check is surfaced in `warnings` and `validation`.
+
+## Roadmap
+
+The engine is intentionally pluggable so a real AI provider could later be added
+behind the same interface — for now, everything is deterministic and offline.
