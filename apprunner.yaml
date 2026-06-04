@@ -1,0 +1,20 @@
+# AWS App Runner configuration for Smart API (GitHub source mode).
+# App Runner reads this at the repo root to build and run the service.
+# Docs: https://docs.aws.amazon.com/apprunner/latest/dg/config-file.html
+version: 1.0
+runtime: nodejs18
+build:
+  commands:
+    build:
+      # Dev deps (TypeScript) are needed to compile; npm install includes them.
+      - npm install
+      - npm run build
+run:
+  command: node dist/index.js
+  network:
+    port: 4000
+  env:
+    - name: NODE_ENV
+      value: production
+    - name: PORT
+      value: "4000"
