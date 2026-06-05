@@ -30,10 +30,12 @@ export const authLoginRule: StepRule = {
   description:
     'Combined login: "login/sign in with <Email|Username> [as] <value> and <Password> [as] <value>"',
   apply(step) {
-    const lead = /^(?:log\s?in|sign\s?in)\s+with\s+(.+)$/i.exec(step.trim())
+    const lead = /^(log\s?in|sign\s?in)\s+with\s+(.+)$/i.exec(step.trim())
     if (!lead) return null
 
-    const segments = lead[1].split(/\s+and\s+/i)
+    // Use the user's verb as the submit-button label: "sign in" -> "Sign in".
+    const buttonName = /sign/i.test(lead[1]) ? 'Sign in' : 'Login'
+    const segments = lead[2].split(/\s+and\s+/i)
     let identifierLabel: 'Email' | 'Username' | null = null
     let identifierValue = ''
     let passwordValue = ''
@@ -63,12 +65,13 @@ export const authLoginRule: StepRule = {
     return {
       lines: [
         `await page.getByLabel(${lit(identifierLabel)}).fill(${lit(identifierValue)})`,
-        `await page.getByLabel('Password').fill(${lit(passwordValue)})`,
-        `await page.getByRole('button', { name: 'Login' }).click()`,
+        // exact:true so a "Show password" toggle button does not also match.
+        `await page.getByLabel('Password', { exact: true }).fill(${lit(passwordValue)})`,
+        `await page.getByRole('button', { name: ${lit(buttonName)} }).click()`,
       ],
       strategies: ['role', 'label'],
       assumptions: [
-        `Assumed labelled "${identifierLabel}" and "Password" fields and a "Login" submit button; rename to match the app (e.g. "Sign in").`,
+        `Assumed labelled "${identifierLabel}" and "Password" fields and a "${buttonName}" submit button; rename to match the app.`,
       ],
       confidence: 0.82,
     }
@@ -83,12 +86,14 @@ export const authLogoutRule: StepRule = {
   name: 'auth-logout',
   description: 'Logout: "logout", "log out", "click logout", "sign out"',
   apply(step) {
-    if (!/^(?:click\s+)?(?:log\s?out|sign\s?out)$/i.test(step.trim())) return null
+    const m = /^(?:click\s+)?(log\s?out|sign\s?out)$/i.exec(step.trim())
+    if (!m) return null
 
+    const buttonName = /sign/i.test(m[1]) ? 'Sign out' : 'Logout'
     return {
-      lines: [`await page.getByRole('button', { name: 'Logout' }).click()`],
+      lines: [`await page.getByRole('button', { name: ${lit(buttonName)} }).click()`],
       strategies: ['role'],
-      assumptions: ['Assumed logout is a button labelled "Logout".'],
+      assumptions: [`Assumed logout is a button labelled "${buttonName}".`],
       confidence: 0.8,
     }
   },

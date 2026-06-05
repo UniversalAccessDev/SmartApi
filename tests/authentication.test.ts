@@ -18,7 +18,7 @@ describe('auth-login rule', () => {
     expect(rule).toBe('auth-login')
     expect(lines).toEqual([
       "await page.getByLabel('Email').fill('user@test.com')",
-      "await page.getByLabel('Password').fill('Secret123')",
+      "await page.getByLabel('Password', { exact: true }).fill('Secret123')",
       "await page.getByRole('button', { name: 'Login' }).click()",
     ])
   })
@@ -28,16 +28,16 @@ describe('auth-login rule', () => {
     expect(rule).toBe('auth-login')
     expect(lines).toEqual([
       "await page.getByLabel('Username').fill('user@test.com')",
-      "await page.getByLabel('Password').fill('Secret123')",
+      "await page.getByLabel('Password', { exact: true }).fill('Secret123')",
       "await page.getByRole('button', { name: 'Login' }).click()",
     ])
   })
 
-  it('supports the "Sign in with ..." variation', () => {
+  it('uses "Sign in" as the button for the "Sign in with ..." variation', () => {
     const { lines, rule } = run('Sign in with Email as user@test.com and Password as Secret123')
     expect(rule).toBe('auth-login')
     expect(lines[0]).toBe("await page.getByLabel('Email').fill('user@test.com')")
-    expect(lines[2]).toBe("await page.getByRole('button', { name: 'Login' }).click()")
+    expect(lines[2]).toBe("await page.getByRole('button', { name: 'Sign in' }).click()")
   })
 
   it('supports the "Log in with ..." variation', () => {
@@ -53,12 +53,18 @@ describe('auth-logout rule', () => {
     expect(lines).toEqual(["await page.getByRole('button', { name: 'Logout' }).click()"])
   })
 
-  it('handles "Log out", "Click Logout", and "Sign out"', () => {
-    for (const step of ['Log out', 'Click Logout', 'Sign out']) {
+  it('handles "Log out" and "Click Logout" as Logout', () => {
+    for (const step of ['Log out', 'Click Logout']) {
       const { lines, rule } = run(step)
       expect(rule).toBe('auth-logout')
       expect(lines[0]).toBe("await page.getByRole('button', { name: 'Logout' }).click()")
     }
+  })
+
+  it('uses "Sign out" as the button for "Sign out"', () => {
+    const { lines, rule } = run('Sign out')
+    expect(rule).toBe('auth-logout')
+    expect(lines[0]).toBe("await page.getByRole('button', { name: 'Sign out' }).click()")
   })
 })
 
