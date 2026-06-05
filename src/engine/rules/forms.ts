@@ -118,3 +118,78 @@ export const selectRule: StepRule = {
     }
   },
 }
+
+/** Select a radio button: "select the Male radio button", "choose Yes radio". */
+export const radioRule: StepRule = {
+  name: 'radio',
+  description: 'Selects a radio button: "select <name> radio [button]", "choose the <name> radio"',
+  apply(step) {
+    const match = /^(?:select|choose|pick|check)\s+(?:the\s+)?(.+?)\s+radio(?:\s+button)?$/i.exec(
+      step.trim(),
+    )
+    if (!match) return null
+    const name = match[1].trim()
+    return {
+      lines: [`await page.getByLabel(${lit(name)}).check()`],
+      strategies: ['label'],
+      assumptions: [`Assumed "${name}" is a labelled radio button.`],
+      confidence: 0.72,
+    }
+  },
+}
+
+/** Clear an input: "clear the Email field", "empty the search box". */
+export const clearFieldRule: StepRule = {
+  name: 'clear-field',
+  description: 'Clears an input: "clear the <field> field", "empty <field>"',
+  apply(step) {
+    const match = /^(?:clear|empty)\s+(?:the\s+)?(.+?)(?:\s+(?:field|input|box))?$/i.exec(
+      step.trim(),
+    )
+    if (!match) return null
+    const field = match[1].trim()
+    return {
+      lines: [`await page.getByLabel(${lit(field)}).clear()`],
+      strategies: ['label'],
+      assumptions: [`Assumed "${field}" is an input reachable via getByLabel().`],
+      confidence: 0.72,
+    }
+  },
+}
+
+/** Upload a file: "upload resume.pdf to Resume", "upload photo.png". */
+export const fileUploadRule: StepRule = {
+  name: 'file-upload',
+  description: 'Uploads a file: "upload <file> to <field>", "upload <file>"',
+  apply(step) {
+    const withField =
+      /^(?:upload|attach)\s+(.+?)\s+(?:to|into|in)\s+(?:the\s+)?(.+?)(?:\s+field)?$/i.exec(
+        step.trim(),
+      )
+    if (withField) {
+      const file = withField[1].trim()
+      const field = withField[2].trim()
+      return {
+        lines: [`await page.getByLabel(${lit(field)}).setInputFiles(${lit(file)})`],
+        strategies: ['label'],
+        assumptions: [
+          `Assumed the upload field "${field}" is reachable via getByLabel(); provide the real file path for "${file}".`,
+        ],
+        confidence: 0.65,
+      }
+    }
+    const simple = /^(?:upload|attach)\s+(?:the\s+)?(?:file\s+)?(.+)$/i.exec(step.trim())
+    if (simple) {
+      const file = simple[1].trim()
+      return {
+        lines: [`await page.locator('input[type="file"]').setInputFiles(${lit(file)})`],
+        strategies: ['label'],
+        assumptions: [
+          `No upload field named — targeted the first file input on the page; provide the real path for "${file}".`,
+        ],
+        confidence: 0.55,
+      }
+    }
+    return null
+  },
+}

@@ -157,12 +157,29 @@ tried before the generic `click` fallback. Every rule reports:
 - any assumptions a reviewer should verify,
 - a confidence score (averaged across steps into `confidenceScore`).
 
-Supported phrasings include: `go to <url>`, `click <name> [button|link|tab]`,
-`enter <field> as <value>` / `fill <field> with <value>` / `type <value> in <field>`,
-`check/uncheck <name>`, `select <option> from <field>`, `press <key>`,
-`hover over <name>`, `close/dismiss the <modal>`, `verify <text> appears`,
-`<text> should be visible`, `verify url is <url>`, and `wait for <text>`
-(translated into a web-first assertion — **never** `waitForTimeout`).
+Supported phrasings (grouped):
+
+- **Navigation** — `go to <url>`, `navigate to <path>`, `go back`, `go forward`,
+  `reload` / `refresh the page`
+- **Auth** — `login/sign in with Email|Username as <v> and Password as <v>`,
+  `logout` / `sign out`, `verify user is logged in/out`
+- **Click** — `click <name> [button|link|tab]`, `double-click <target>`,
+  `right-click <target>`, `tap <name>`, `hover over <name>`,
+  `close/dismiss the <modal>`
+- **Forms** — `enter <field> as <value>` / `fill <field> with <value>` /
+  `type <value> in <field>`, `check/uncheck <name>`,
+  `select <option> from <field>`, `choose <name> radio`, `clear the <field>`,
+  `upload <file> to <field>`, `focus the <field>`, `search for <query>`
+- **Keyboard / scroll** — `press <key>`, `scroll to <target>`, `scroll to bottom`
+- **Assertions** — `verify <text> appears` / `<text> should be visible`,
+  `verify <text> is not visible` / `<text> should disappear`,
+  `verify <element> is enabled/disabled`, `verify <name> is checked/unchecked`,
+  `verify <field> has value <value>`, `verify <area> contains <text>`,
+  `verify url is <url>`, `verify title is <title>`, and `wait for <text>`
+  (translated into a web-first assertion — **never** `waitForTimeout`).
+
+Anything the engine can't map is emitted as a `// TODO` line plus a warning, so
+the caller is told honestly rather than getting a wrong guess.
 
 ### Extending it
 

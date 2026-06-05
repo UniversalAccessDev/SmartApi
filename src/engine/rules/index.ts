@@ -1,5 +1,5 @@
 import { StepRule } from '../types'
-import { navigateRule } from './navigation'
+import { navigateRule, goBackRule, goForwardRule, reloadRule } from './navigation'
 import {
   authLoginRule,
   authLogoutRule,
@@ -12,9 +12,32 @@ import {
   assertVisibleRule,
   assertContainsRule,
   waitForRule,
+  assertHiddenRule,
+  assertDisabledRule,
+  assertEnabledRule,
+  assertCheckedRule,
+  assertValueRule,
 } from './assertions'
-import { fillRule, checkRule, uncheckRule, selectRule } from './forms'
-import { pressKeyRule, hoverRule, closeOverlayRule, clickRule } from './interaction'
+import {
+  fillRule,
+  checkRule,
+  uncheckRule,
+  selectRule,
+  radioRule,
+  clearFieldRule,
+  fileUploadRule,
+} from './forms'
+import {
+  pressKeyRule,
+  hoverRule,
+  closeOverlayRule,
+  clickRule,
+  doubleClickRule,
+  rightClickRule,
+  searchRule,
+  scrollRule,
+  focusRule,
+} from './interaction'
 
 /**
  * Ordered rule registry. The engine applies these top-to-bottom and uses the
@@ -25,24 +48,49 @@ import { pressKeyRule, hoverRule, closeOverlayRule, clickRule } from './interact
  * right priority — no other file needs to change.
  */
 export const RULES: StepRule[] = [
+  // Navigation
   navigateRule,
+  goBackRule,
+  goForwardRule,
+  reloadRule,
+
   pressKeyRule,
-  // Authentication — must precede the generic fill / click / assertion rules
-  // so combined login steps expand into the full credential flow.
+
+  // Authentication — before generic fill / click / assertion rules
   authLoginRule,
   authLogoutRule,
   authVerifyLoggedInRule,
   authVerifyLoggedOutRule,
+
+  // Assertions — specific (negative / state / value) BEFORE the broad
+  // visibility and contains assertions so they are not mis-matched.
   assertUrlRule,
   assertTitleRule,
+  assertHiddenRule,
+  assertDisabledRule,
+  assertEnabledRule,
+  assertCheckedRule,
+  assertValueRule,
   assertVisibleRule,
   assertContainsRule,
   waitForRule,
+
+  // Forms
   fillRule,
+  radioRule,
   selectRule,
   checkRule,
   uncheckRule,
+  clearFieldRule,
+  fileUploadRule,
+  focusRule,
+
+  // Interaction — specific click variants BEFORE the generic click fallback.
+  searchRule,
+  doubleClickRule,
+  rightClickRule,
   hoverRule,
+  scrollRule,
   closeOverlayRule,
   clickRule,
 ]

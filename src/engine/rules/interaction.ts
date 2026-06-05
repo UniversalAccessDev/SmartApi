@@ -144,3 +144,128 @@ export const clickRule: StepRule = {
     }
   },
 }
+
+/** Resolve a click-target phrase to a locator, inferring a role from a suffix. */
+const targetLocator = (raw: string): string => {
+  let name = raw.trim().replace(/^["']|["']$/g, '')
+  for (const [suffix, role] of ROLE_SUFFIXES) {
+    if (suffix.test(name)) {
+      name = name.replace(suffix, '').trim()
+      return `page.getByRole('${role}', { name: ${lit(name)} })`
+    }
+  }
+  return `page.getByText(${lit(name)})`
+}
+
+/** Double-click: "double click X", "double-click the Row". */
+export const doubleClickRule: StepRule = {
+  name: 'double-click',
+  description: 'Double-clicks an element: "double click <target>", "double-click the <target>"',
+  apply(step) {
+    const match = /^double[-\s]?click\s+(?:on\s+)?(?:the\s+)?(.+)$/i.exec(step.trim())
+    if (!match) return null
+    return {
+      lines: [`await ${targetLocator(match[1])}.dblclick()`],
+      strategies: ['text'],
+      assumptions: [
+        `Double-clicked "${match[1].trim()}"; adjust the locator if it is a specific role.`,
+      ],
+      confidence: 0.65,
+    }
+  },
+}
+
+/** Right-click (context menu): "right click X", "right-click the file". */
+export const rightClickRule: StepRule = {
+  name: 'right-click',
+  description: 'Right-clicks an element: "right click <target>", "right-click the <target>"',
+  apply(step) {
+    const match = /^right[-\s]?click\s+(?:on\s+)?(?:the\s+)?(.+)$/i.exec(step.trim())
+    if (!match) return null
+    return {
+      lines: [`await ${targetLocator(match[1])}.click({ button: 'right' })`],
+      strategies: ['text'],
+      assumptions: [
+        `Right-clicked "${match[1].trim()}"; adjust the locator if it is a specific role.`,
+      ],
+      confidence: 0.65,
+    }
+  },
+}
+
+/** Search: "search for laptops", "search laptops in the search bar". */
+export const searchRule: StepRule = {
+  name: 'search',
+  description: 'Searches: "search for <query>" — fills the search box and presses Enter',
+  apply(step) {
+    const match = /^search\s+(?:for\s+)?(.+?)(?:\s+in\s+.+)?$/i.exec(step.trim())
+    if (!match) return null
+    const query = match[1].trim()
+    return {
+      lines: [
+        `await page.getByRole('searchbox').fill(${lit(query)})`,
+        `await page.keyboard.press('Enter')`,
+      ],
+      strategies: ['role', 'keyboard'],
+      assumptions: [
+        `Assumed a search box with role "searchbox"; use getByPlaceholder('Search') if the field is a plain input.`,
+      ],
+      confidence: 0.62,
+    }
+  },
+}
+
+/** Scroll: "scroll to the footer", "scroll to bottom", "scroll down". */
+export const scrollRule: StepRule = {
+  name: 'scroll',
+  description: 'Scrolls: "scroll to <target>", "scroll to bottom", "scroll down"',
+  apply(step) {
+    const s = step.trim()
+    if (/^scroll\s+(?:to\s+(?:the\s+)?)?(?:bottom|end|down)$/i.test(s)) {
+      return {
+        lines: ['await page.mouse.wheel(0, 10000)'],
+        strategies: ['keyboard'],
+        assumptions: ['Scrolled the viewport down; adjust the distance if needed.'],
+        confidence: 0.6,
+      }
+    }
+    if (/^scroll\s+(?:to\s+(?:the\s+)?)?(?:top|up)$/i.test(s)) {
+      return {
+        lines: ['await page.mouse.wheel(0, -10000)'],
+        strategies: ['keyboard'],
+        assumptions: ['Scrolled the viewport up; adjust the distance if needed.'],
+        confidence: 0.6,
+      }
+    }
+    const toTarget = /^scroll\s+(?:down\s+)?to\s+(?:the\s+)?(.+)$/i.exec(s)
+    if (toTarget) {
+      const name = toTarget[1].trim()
+      return {
+        lines: [`await page.getByText(${lit(name)}).scrollIntoViewIfNeeded()`],
+        strategies: ['text'],
+        assumptions: [`Scrolled to "${name}" via getByText(); adjust the locator if ambiguous.`],
+        confidence: 0.62,
+      }
+    }
+    return null
+  },
+}
+
+/** Focus a field: "focus the Email field", "focus on Search". */
+export const focusRule: StepRule = {
+  name: 'focus',
+  description: 'Focuses a field: "focus the <field> field", "focus on <field>"',
+  apply(step) {
+    const match = /^focus\s+(?:on\s+)?(?:the\s+)?(.+?)(?:\s+(?:field|input|box))?$/i.exec(
+      step.trim(),
+    )
+    if (!match) return null
+    const field = match[1].trim()
+    return {
+      lines: [`await page.getByLabel(${lit(field)}).focus()`],
+      strategies: ['label'],
+      assumptions: [`Assumed "${field}" is an input reachable via getByLabel().`],
+      confidence: 0.65,
+    }
+  },
+}
