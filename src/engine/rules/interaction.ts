@@ -226,12 +226,17 @@ export const rightClickRule: StepRule = {
   },
 }
 
-/** Search: "search for laptops", "search laptops in the search bar". */
+/** Search: "search for laptops", "search Indian food in the search bar". */
 export const searchRule: StepRule = {
   name: 'search',
   description: 'Searches: "search for <query>" — fills the search box and presses Enter',
   apply(step) {
-    const match = /^search\s+(?:for\s+)?(.+?)(?:\s+in\s+.+)?$/i.exec(step.trim())
+    // Only strip a trailing "in/using the search bar/box" — never a query that
+    // happens to contain "in" (e.g. "Indian food in Los Angeles").
+    const match =
+      /^search\s+(?:for\s+)?(.+?)(?:\s+(?:in|using)\s+(?:the\s+)?search\s+(?:bar|box|field|input))?$/i.exec(
+        step.trim(),
+      )
     if (!match) return null
     const query = match[1].trim()
     return {

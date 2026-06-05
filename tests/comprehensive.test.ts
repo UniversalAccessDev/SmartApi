@@ -49,6 +49,22 @@ describe('locator strategies', () => {
   })
 })
 
+describe('search keeps the full query', () => {
+  it('does not drop "in <place>" from the query', () => {
+    const { lines, rule } = run('Search for Indian food in Los Angeles')
+    expect(rule).toBe('search')
+    expect(lines).toEqual([
+      "await page.getByRole('searchbox').fill('Indian food in Los Angeles')",
+      "await page.keyboard.press('Enter')",
+    ])
+  })
+  it('still strips an explicit "in the search bar"', () => {
+    expect(run('Search for laptops in the search bar').lines[0]).toBe(
+      "await page.getByRole('searchbox').fill('laptops')",
+    )
+  })
+})
+
 describe('table / row actions', () => {
   it('row action click', () => {
     const { line, rule } = run('Click Edit in the row for Jane Doe')
