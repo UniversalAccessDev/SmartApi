@@ -52,6 +52,44 @@ export const fillRule: StepRule = {
   },
 }
 
+/**
+ * Fill by placeholder text:
+ *   "type jane in the Name placeholder"
+ *   "enter laptops into the Search placeholder"
+ *   "fill the Email placeholder with jane@test.com"
+ */
+export const placeholderFillRule: StepRule = {
+  name: 'fill-placeholder',
+  description: 'Fills by placeholder: "type <value> in the <placeholder> placeholder"',
+  apply(step) {
+    const s = step.trim()
+    const valueFirst =
+      /^(?:type|enter|input)\s+(.+?)\s+(?:in|into)\s+(?:the\s+)?(.+?)\s+placeholder$/i.exec(s)
+    if (valueFirst) {
+      return {
+        lines: [
+          `await page.getByPlaceholder(${lit(valueFirst[2].trim())}).fill(${lit(valueFirst[1].trim())})`,
+        ],
+        strategies: ['placeholder'],
+        assumptions: [],
+        confidence: 0.75,
+      }
+    }
+    const fieldFirst = /^fill\s+(?:the\s+)?(.+?)\s+placeholder\s+with\s+(.+)$/i.exec(s)
+    if (fieldFirst) {
+      return {
+        lines: [
+          `await page.getByPlaceholder(${lit(fieldFirst[1].trim())}).fill(${lit(fieldFirst[2].trim())})`,
+        ],
+        strategies: ['placeholder'],
+        assumptions: [],
+        confidence: 0.75,
+      }
+    }
+    return null
+  },
+}
+
 /** Check a checkbox/toggle: "check the Terms checkbox", "enable Notifications". */
 export const checkRule: StepRule = {
   name: 'check',

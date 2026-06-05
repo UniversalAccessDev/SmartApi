@@ -33,6 +33,39 @@ export const pressKeyRule: StepRule = {
     if (!match) return null
 
     const raw = match[1].trim().toLowerCase()
+
+    // Modifier combos: "ctrl+a", "cmd+shift+p" -> "Control+A", "Meta+Shift+P".
+    if (raw.includes('+')) {
+      const MODIFIERS: Record<string, string> = {
+        ctrl: 'Control',
+        control: 'Control',
+        cmd: 'Meta',
+        command: 'Meta',
+        meta: 'Meta',
+        win: 'Meta',
+        shift: 'Shift',
+        alt: 'Alt',
+        option: 'Alt',
+      }
+      const parts = raw.split('+').map((p) => p.trim())
+      const hasModifier = parts.some((p) => MODIFIERS[p])
+      if (hasModifier) {
+        const combo = parts
+          .map((p) => {
+            if (MODIFIERS[p]) return MODIFIERS[p]
+            if (KEY_MAP[p]) return KEY_MAP[p]
+            return p.length === 1 ? p.toUpperCase() : p.charAt(0).toUpperCase() + p.slice(1)
+          })
+          .join('+')
+        return {
+          lines: [`await page.keyboard.press(${lit(combo)})`],
+          strategies: ['keyboard'],
+          assumptions: [],
+          confidence: 0.85,
+        }
+      }
+    }
+
     const key = KEY_MAP[raw] ?? (raw.length === 1 ? raw.toUpperCase() : null)
     if (!key) return null // not a known key — let clickRule try
 
@@ -266,6 +299,170 @@ export const focusRule: StepRule = {
       strategies: ['label'],
       assumptions: [`Assumed "${field}" is an input reachable via getByLabel().`],
       confidence: 0.65,
+    }
+  },
+}
+
+/** Click by test id: "click the element with test id submit-btn", "click test id row-3". */
+export const testIdClickRule: StepRule = {
+  name: 'click-testid',
+  description: 'Clicks by test id: "click the element with test id <id>", "click test id <id>"',
+  apply(step) {
+    const match =
+      /^click\s+(?:on\s+)?(?:the\s+)?(?:element\s+with\s+)?test[\s-]?id\s+["']?(.+?)["']?$/i.exec(
+        step.trim(),
+      )
+    if (!match) return null
+    return {
+      lines: [`await page.getByTestId(${lit(match[1].trim())}).click()`],
+      strategies: ['testid'],
+      assumptions: [],
+      confidence: 0.85,
+    }
+  },
+}
+
+/** Click by visible text: "click on the text Welcome", "click the text Read more". */
+export const textClickRule: StepRule = {
+  name: 'click-text',
+  description: 'Clicks by visible text: "click on the text <text>"',
+  apply(step) {
+    const match = /^click\s+(?:on\s+)?the\s+text\s+["']?(.+?)["']?$/i.exec(step.trim())
+    if (!match) return null
+    return {
+      lines: [`await page.getByText(${lit(match[1].trim())}).click()`],
+      strategies: ['text'],
+      assumptions: [],
+      confidence: 0.75,
+    }
+  },
+}
+
+const ORDINALS: Record<string, number> = {
+  first: 0,
+  '1st': 0,
+  second: 1,
+  '2nd': 1,
+  third: 2,
+  '3rd': 2,
+  fourth: 3,
+  '4th': 3,
+  fifth: 4,
+  '5th': 4,
+}
+
+/** Click the Nth match: "click the first result", "click the 3rd Add to Cart button". */
+export const nthClickRule: StepRule = {
+  name: 'click-nth',
+  description: 'Clicks the Nth match: "click the first/second/last <target>"',
+  apply(step) {
+    const match =
+      /^click\s+(?:on\s+)?the\s+(first|second|third|fourth|fifth|last|\d+(?:st|nd|rd|th)|1st|2nd|3rd)\s+(.+)$/i.exec(
+        step.trim(),
+      )
+    if (!match) return null
+    const ord = match[1].toLowerCase()
+    const base = targetLocator(match[2])
+    let selector: string
+    if (ord === 'last') selector = `${base}.last()`
+    else if (ord === 'first' || ord === '1st') selector = `${base}.first()`
+    else if (ord in ORDINALS) selector = `${base}.nth(${ORDINALS[ord]})`
+    else {
+      const n = parseInt(ord, 10)
+      selector = Number.isFinite(n) && n > 0 ? `${base}.nth(${n - 1})` : `${base}.first()`
+    }
+    return {
+      lines: [`await ${selector}.click()`],
+      strategies: ['text'],
+      assumptions: [
+        `Selected the "${ord}" match of "${match[2].trim()}"; verify the index/locator.`,
+      ],
+      confidence: 0.62,
+    }
+  },
+}
+
+/** Click an image: "click the logo image", "click the image". */
+export const imageClickRule: StepRule = {
+  name: 'click-image',
+  description: 'Clicks an image: "click the <alt> image/logo/picture"',
+  apply(step) {
+    const match = /^click\s+(?:on\s+)?(?:the\s+)?(.*?)\s*(?:image|logo|picture)$/i.exec(step.trim())
+    if (!match) return null
+    const alt = match[1].trim().replace(/^(?:the|a|an)\s+/i, '')
+    const locator = alt ? `page.getByAltText(${lit(alt)})` : `page.getByRole('img')`
+    return {
+      lines: [`await ${locator}.click()`],
+      strategies: alt ? ['text'] : ['role'],
+      assumptions: [alt ? `Assumed alt text "${alt}" for the image.` : 'Targeted the first image.'],
+      confidence: 0.6,
+    }
+  },
+}
+
+/** Drag and drop: "drag X to Y", "drag and drop X onto Y". */
+export const dragRule: StepRule = {
+  name: 'drag',
+  description: 'Drags one element onto another: "drag <source> to <target>"',
+  apply(step) {
+    const match =
+      /^drag\s+(?:and\s+drop\s+)?(?:the\s+)?(.+?)\s+(?:to|onto|into|on)\s+(?:the\s+)?(.+)$/i.exec(
+        step.trim(),
+      )
+    if (!match) return null
+    const source = match[1].trim()
+    const target = match[2].trim()
+    return {
+      lines: [`await page.getByText(${lit(source)}).dragTo(page.getByText(${lit(target)}))`],
+      strategies: ['text'],
+      assumptions: [
+        `Dragged "${source}" onto "${target}" via getByText(); adjust the locators if they are specific roles.`,
+      ],
+      confidence: 0.6,
+    }
+  },
+}
+
+/** Expand/collapse a section: "expand the Details section", "collapse Advanced". */
+export const expandCollapseRule: StepRule = {
+  name: 'expand-collapse',
+  description: 'Expands/collapses a section: "expand the <name> section", "collapse <name>"',
+  apply(step) {
+    const match =
+      /^(?:expand|collapse|toggle)\s+(?:the\s+)?(.+?)(?:\s+(?:section|accordion|panel|menu|dropdown|group))?$/i.exec(
+        step.trim(),
+      )
+    if (!match) return null
+    const name = match[1].trim()
+    return {
+      lines: [`await page.getByRole('button', { name: ${lit(name)} }).click()`],
+      strategies: ['role'],
+      assumptions: [
+        `Assumed "${name}" is an expandable control (button); adjust the role if needed.`,
+      ],
+      confidence: 0.6,
+    }
+  },
+}
+
+/** Handle a browser dialog: "accept the alert", "dismiss the confirmation". */
+export const dialogRule: StepRule = {
+  name: 'dialog',
+  description: 'Handles native dialogs: "accept the alert", "dismiss the confirmation"',
+  apply(step) {
+    const match =
+      /^(accept|confirm|dismiss|cancel)\s+(?:the\s+)?.*\b(?:alert|dialog|confirmation|prompt|popup)\b\s*$/i.exec(
+        step.trim(),
+      )
+    if (!match) return null
+    const action = /^(accept|confirm)$/i.test(match[1]) ? 'accept' : 'dismiss'
+    return {
+      lines: [`page.once('dialog', (dialog) => dialog.${action}())`],
+      strategies: ['keyboard'],
+      assumptions: [
+        `Register this dialog handler BEFORE the step that triggers the ${match[1].toLowerCase()} dialog.`,
+      ],
+      confidence: 0.6,
     }
   },
 }

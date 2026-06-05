@@ -17,9 +17,16 @@ import {
   assertEnabledRule,
   assertCheckedRule,
   assertValueRule,
+  assertHeadingRule,
+  assertImageRule,
+  assertFocusedRule,
+  assertEmptyRule,
+  assertAttributeRule,
+  assertCountRule,
 } from './assertions'
 import {
   fillRule,
+  placeholderFillRule,
   checkRule,
   uncheckRule,
   selectRule,
@@ -37,7 +44,15 @@ import {
   searchRule,
   scrollRule,
   focusRule,
+  testIdClickRule,
+  textClickRule,
+  nthClickRule,
+  imageClickRule,
+  dragRule,
+  expandCollapseRule,
+  dialogRule,
 } from './interaction'
+import { rowActionRule, rowContainsRule } from './tables'
 
 /**
  * Ordered rule registry. The engine applies these top-to-bottom and uses the
@@ -62,20 +77,28 @@ export const RULES: StepRule[] = [
   authVerifyLoggedInRule,
   authVerifyLoggedOutRule,
 
-  // Assertions — specific (negative / state / value) BEFORE the broad
-  // visibility and contains assertions so they are not mis-matched.
+  // Assertions — specific (row / heading / image / state / value / attribute /
+  // count) BEFORE the broad visibility and contains assertions.
   assertUrlRule,
   assertTitleRule,
+  rowContainsRule,
+  assertHeadingRule,
+  assertImageRule,
+  assertEmptyRule,
+  assertFocusedRule,
   assertHiddenRule,
   assertDisabledRule,
   assertEnabledRule,
   assertCheckedRule,
   assertValueRule,
+  assertAttributeRule,
+  assertCountRule,
   assertVisibleRule,
   assertContainsRule,
   waitForRule,
 
-  // Forms
+  // Forms — placeholder fill before the generic label fill.
+  placeholderFillRule,
   fillRule,
   radioRule,
   selectRule,
@@ -85,10 +108,18 @@ export const RULES: StepRule[] = [
   fileUploadRule,
   focusRule,
 
-  // Interaction — specific click variants BEFORE the generic click fallback.
+  // Interaction — specific click variants & gestures BEFORE the generic click.
+  rowActionRule,
   searchRule,
+  testIdClickRule,
+  textClickRule,
+  nthClickRule,
+  imageClickRule,
   doubleClickRule,
   rightClickRule,
+  dragRule,
+  expandCollapseRule,
+  dialogRule,
   hoverRule,
   scrollRule,
   closeOverlayRule,

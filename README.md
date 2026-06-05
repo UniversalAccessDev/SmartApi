@@ -165,16 +165,26 @@ Supported phrasings (grouped):
   `logout` / `sign out`, `verify user is logged in/out`
 - **Click** — `click <name> [button|link|tab]`, `double-click <target>`,
   `right-click <target>`, `tap <name>`, `hover over <name>`,
+  `click on the text <text>`, `click the element with test id <id>`,
+  `click the first/second/last <target>`, `click the <alt> image`,
   `close/dismiss the <modal>`
 - **Forms** — `enter <field> as <value>` / `fill <field> with <value>` /
-  `type <value> in <field>`, `check/uncheck <name>`,
-  `select <option> from <field>`, `choose <name> radio`, `clear the <field>`,
-  `upload <file> to <field>`, `focus the <field>`, `search for <query>`
-- **Keyboard / scroll** — `press <key>`, `scroll to <target>`, `scroll to bottom`
+  `type <value> in <field>`, `type <value> in the <placeholder> placeholder`,
+  `check/uncheck <name>`, `select <option> from <field>`, `choose <name> radio`,
+  `clear the <field>`, `upload <file> to <field>`, `focus the <field>`,
+  `search for <query>`
+- **Tables** — `click <action> in the row for <identifier>`,
+  `verify the row for <identifier> contains <text>`
+- **Gestures / keyboard / scroll** — `drag <a> to <b>`, `press <key>`,
+  `press Ctrl+<key>` / `Cmd+Shift+<key>`, `expand/collapse the <section>`,
+  `scroll to <target>`, `scroll to bottom`, `accept/dismiss the alert`
 - **Assertions** — `verify <text> appears` / `<text> should be visible`,
   `verify <text> is not visible` / `<text> should disappear`,
   `verify <element> is enabled/disabled`, `verify <name> is checked/unchecked`,
-  `verify <field> has value <value>`, `verify <area> contains <text>`,
+  `verify <field> has value <value>`, `verify the <field> is empty/focused`,
+  `verify the heading <text> is visible`, `verify the <alt> image is visible`,
+  `verify the <name> link has href <value>`, `verify the table has <N> rows`,
+  `verify <N> items are visible`, `verify <area> contains <text>`,
   `verify url is <url>`, `verify title is <title>`, and `wait for <text>`
   (translated into a web-first assertion — **never** `waitForTimeout`).
 
