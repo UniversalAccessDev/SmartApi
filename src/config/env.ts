@@ -10,6 +10,9 @@ dotenv.config()
 const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
+  // Comma-separated list of accepted API keys. When empty, auth is disabled
+  // ("open mode") — handy for local dev; set this in production to lock it down.
+  API_KEYS: z.string().default(''),
 })
 
 const parsed = EnvSchema.safeParse(process.env)

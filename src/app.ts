@@ -3,6 +3,7 @@ import cors from 'cors'
 import healthRoutes from './routes/health.routes'
 import playwrightRoutes from './routes/playwright.routes'
 import { errorHandler, notFoundHandler } from './middleware/errorHandler'
+import { requireApiKey, apiKeyAuthEnabled } from './middleware/apiKey'
 import { API_PREFIX, MODEL_NAME, PRODUCT_NAME, TAGLINE } from './constants'
 
 /**
@@ -30,10 +31,18 @@ export const createApp = (): Application => {
   })
 
   app.use('/', healthRoutes)
-  app.use(`${API_PREFIX}/playwright`, playwrightRoutes)
+  // Protect the generate API with an API key (no-op in open mode). /health and
+  // the root descriptor stay public so monitoring and discovery keep working.
+  app.use(`${API_PREFIX}/playwright`, requireApiKey, playwrightRoutes)
 
   app.use(notFoundHandler)
   app.use(errorHandler)
+
+  if (!apiKeyAuthEnabled) {
+    console.warn(
+      '[Smart API] WARNING: API_KEYS is not set — the generate endpoint is OPEN to anyone. Set API_KEYS to require a key.',
+    )
+  }
 
   return app
 }
