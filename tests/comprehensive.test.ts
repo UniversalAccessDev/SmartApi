@@ -116,6 +116,29 @@ describe('advanced interactions', () => {
   })
 })
 
+describe('screenshot step', () => {
+  it('take a screenshot (unnamed)', () => {
+    const { line, rule } = run('Take a screenshot')
+    expect(rule).toBe('screenshot')
+    expect(line).toBe(
+      "await page.screenshot({ path: 'screenshots/screenshot.png', fullPage: true })",
+    )
+  })
+  it('take a screenshot named X', () => {
+    expect(run('Take a screenshot named Login Page').line).toBe(
+      "await page.screenshot({ path: 'screenshots/login-page.png', fullPage: true })",
+    )
+  })
+  it('capture a full page screenshot of the cart', () => {
+    expect(run('Capture a full page screenshot of the cart').line).toBe(
+      "await page.screenshot({ path: 'screenshots/the-cart.png', fullPage: true })",
+    )
+  })
+  it('screenshot the page', () => {
+    expect(run('Screenshot the page').rule).toBe('screenshot')
+  })
+})
+
 describe('more assertions', () => {
   it('heading visible', () => {
     const { line, rule } = run('Verify the heading Welcome is visible')

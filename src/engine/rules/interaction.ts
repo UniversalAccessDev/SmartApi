@@ -1,5 +1,6 @@
 import { StepRule } from '../types'
 import { lit } from '../../utils/literal'
+import { slugify } from '../../utils/slug'
 
 const KEY_MAP: Record<string, string> = {
   enter: 'Enter',
@@ -468,6 +469,39 @@ export const dialogRule: StepRule = {
         `Register this dialog handler BEFORE the step that triggers the ${match[1].toLowerCase()} dialog.`,
       ],
       confidence: 0.6,
+    }
+  },
+}
+
+/**
+ * Capture a screenshot:
+ *   "take a screenshot"
+ *   "take a screenshot named login-page"
+ *   "capture a full page screenshot of the cart"
+ *   "screenshot the page"
+ */
+export const screenshotRule: StepRule = {
+  name: 'screenshot',
+  description: 'Captures a screenshot: "take a screenshot", "take a screenshot named <name>"',
+  apply(step) {
+    const s = step.trim()
+    const m =
+      /^(?:take|capture|grab|save)\s+(?:a\s+|an\s+)?(?:full[\s-]?page\s+)?screenshot(?:\s+(?:of\s+)?(?:the\s+)?(?:page|screen|viewport))?(?:\s+(?:named|called|as|of|for)\s+(.+))?$/i.exec(
+        s,
+      ) || /^screenshot(?:\s+(?:the\s+)?(?:page|screen))?$/i.exec(s)
+    if (!m) return null
+
+    const name = (m[1] || '').trim()
+    const file = `screenshots/${name ? slugify(name) : 'screenshot'}.png`
+    return {
+      lines: [`await page.screenshot({ path: ${lit(file)}, fullPage: true })`],
+      strategies: [],
+      assumptions: name
+        ? []
+        : [
+            'Unnamed screenshot saved as screenshots/screenshot.png; add "named <label>" to keep multiple screenshots distinct.',
+          ],
+      confidence: 0.9,
     }
   },
 }

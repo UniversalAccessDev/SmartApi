@@ -51,6 +51,7 @@ import {
   dragRule,
   expandCollapseRule,
   dialogRule,
+  screenshotRule,
 } from './interaction'
 import { rowActionRule, rowContainsRule } from './tables'
 
@@ -109,6 +110,7 @@ export const RULES: StepRule[] = [
   focusRule,
 
   // Interaction — specific click variants & gestures BEFORE the generic click.
+  screenshotRule,
   rowActionRule,
   searchRule,
   testIdClickRule,

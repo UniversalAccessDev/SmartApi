@@ -177,7 +177,9 @@ Supported phrasings (grouped):
   `verify the row for <identifier> contains <text>`
 - **Gestures / keyboard / scroll** — `drag <a> to <b>`, `press <key>`,
   `press Ctrl+<key>` / `Cmd+Shift+<key>`, `expand/collapse the <section>`,
-  `scroll to <target>`, `scroll to bottom`, `accept/dismiss the alert`
+  `scroll to <target>`, `scroll to bottom`, `accept/dismiss the alert`,
+  `take a screenshot [named <label>]` (also available via the
+  `includeScreenshots` request flag, which adds one at the end)
 - **Assertions** — `verify <text> appears` / `<text> should be visible`,
   `verify <text> is not visible` / `<text> should disappear`,
   `verify <element> is enabled/disabled`, `verify <name> is checked/unchecked`,
