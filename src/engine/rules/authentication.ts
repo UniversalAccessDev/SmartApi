@@ -96,7 +96,7 @@ export const authLogoutRule: StepRule = {
   name: 'auth-logout',
   description: 'Logout: "logout", "log out", "click logout", "sign out"',
   apply(step) {
-    const m = /^(?:click\s+)?(log\s?out|sign\s?out)$/i.exec(step.trim())
+    const m = /^(?:click\s+)?(log\s?out|sign\s?out)(?:\s+(?:of|from)\s+.*)?$/i.exec(step.trim())
     if (!m) return null
 
     const buttonName = /sign/i.test(m[1]) ? 'Sign out' : 'Logout'

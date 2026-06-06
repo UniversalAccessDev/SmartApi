@@ -27,13 +27,19 @@ export const assertTitleRule: StepRule = {
   description: 'Asserts the page title: "verify title is <title>"',
   apply(step) {
     const match =
-      /^(?:verify|assert|ensure|expect|check)\s+(?:that\s+)?(?:the\s+)?(?:page\s+)?title\s+(?:is|to be|equals|should be)\s+(.+)$/i.exec(
+      /^(?:verify|assert|ensure|expect|check)\s+(?:that\s+)?(?:the\s+)?(?:page\s+)?title\s+(is|to be|equals|should be|contains|should contain|includes)\s+(.+)$/i.exec(
         step.trim(),
       )
     if (!match) return null
 
+    const op = match[1].toLowerCase()
+    const value = match[2].trim()
+    const isContains = /contain|include/.test(op)
+    const matcher = isContains
+      ? `toHaveTitle(new RegExp(${lit(value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))}, 'i'))`
+      : `toHaveTitle(${lit(value)})`
     return {
-      lines: [`await expect(page).toHaveTitle(${lit(match[1].trim())})`],
+      lines: [`await expect(page).${matcher}`],
       strategies: ['url'],
       assumptions: [],
       confidence: 0.85,
@@ -109,9 +115,10 @@ export const waitForRule: StepRule = {
   name: 'wait-for',
   description: 'Waits for an element via assertion: "wait for <text> to appear/load"',
   apply(step) {
-    const match = /^wait for\s+(.+?)(?:\s+to\s+(?:appear|be\s+visible|load|show))?$/i.exec(
-      step.trim(),
-    )
+    const match =
+      /^wait\s+(?:for|until)\s+(.+?)(?:\s+to\s+(?:appear|be\s+visible|load|show)|\s+(?:loads?|appears?|shows?|is\s+visible))?$/i.exec(
+        step.trim(),
+      )
     if (!match) return null
 
     const text = match[1].trim()

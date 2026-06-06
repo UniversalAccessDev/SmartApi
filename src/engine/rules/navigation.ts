@@ -30,7 +30,11 @@ export const goBackRule: StepRule = {
   name: 'go-back',
   description: 'Navigates back: "go back", "navigate back", "press the back button"',
   apply(step) {
-    if (!/^(?:go|navigate|press|click)?\s*(?:the\s+)?back(?:\s+button)?$/i.test(step.trim())) {
+    if (
+      !/^(?:go|navigate|press|click)?\s*(?:the\s+)?back(?:\s+button)?(?:\s+to\s+.*)?$/i.test(
+        step.trim(),
+      )
+    ) {
       return null
     }
     return {

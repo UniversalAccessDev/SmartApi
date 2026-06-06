@@ -192,8 +192,16 @@ Supported phrasings (grouped):
   `verify url is <url>`, `verify title is <title>`, and `wait for <text>`
   (translated into a web-first assertion — **never** `waitForTimeout`).
 
-Anything the engine can't map is emitted as a `// TODO` line plus a warning, so
-the caller is told honestly rather than getting a wrong guess.
+It also understands many **natural phrasings** beyond the literal forms above —
+e.g. "Sign in with Google", "Register a new account", "Add the item to the cart",
+"Proceed to checkout", "Accept cookies", "Open the user menu", "Sort by name",
+"Switch on notifications", "Select all rows", "Delete the last row",
+"Apply the discount code SAVE10", "Verify I'm on the checkout page",
+"Verify there are no results", "The page should load". Coverage is exercised by
+a corpus test that fails if mapping drops below 90%.
+
+Anything the engine can't confidently map is emitted as a `// TODO` line plus a
+warning, so the caller is told honestly rather than getting a wrong guess.
 
 ### Extending it
 

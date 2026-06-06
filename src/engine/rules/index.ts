@@ -54,6 +54,39 @@ import {
   screenshotRule,
 } from './interaction'
 import { rowActionRule, rowContainsRule } from './tables'
+import {
+  navToPageRule,
+  goHomeRule,
+  nextPageRule,
+  prevPageRule,
+  openElementRule,
+  submitFormRule,
+  addToCartRule,
+  checkoutRule,
+  placeOrderRule,
+  removeFromCartRule,
+  acceptCookiesRule,
+  sortByRule,
+  switchToggleRule,
+  chooseFileRule,
+  onPageRule,
+  modalClosedRule,
+  noResultsRule,
+  messageRule,
+  waitForLoadRule,
+  waitSecondsRule,
+  socialLoginRule,
+  registerRule,
+  forgotPasswordRule,
+  incrementRule,
+  sliderRule,
+  selectAllRule,
+  deleteRowRule,
+  couponRule,
+  filterByRule,
+  totalIsRule,
+  pageShouldLoadRule,
+} from './natural'
 
 /**
  * Ordered rule registry. The engine applies these top-to-bottom and uses the
@@ -69,19 +102,30 @@ export const RULES: StepRule[] = [
   goBackRule,
   goForwardRule,
   reloadRule,
+  goHomeRule,
+  navToPageRule,
+  nextPageRule,
+  prevPageRule,
 
   pressKeyRule,
 
-  // Authentication — before generic fill / click / assertion rules
+  // Authentication — social/SSO and register/forgot before the credential login.
+  socialLoginRule,
+  registerRule,
+  forgotPasswordRule,
   authLoginRule,
   authLogoutRule,
   authVerifyLoggedInRule,
   authVerifyLoggedOutRule,
 
-  // Assertions — specific (row / heading / image / state / value / attribute /
-  // count) BEFORE the broad visibility and contains assertions.
+  // Assertions — specific (page / modal / message / row / heading / state /
+  // value / attribute / count) BEFORE the broad visibility & contains asserts.
   assertUrlRule,
   assertTitleRule,
+  onPageRule,
+  modalClosedRule,
+  noResultsRule,
+  messageRule,
   rowContainsRule,
   assertHeadingRule,
   assertImageRule,
@@ -94,20 +138,43 @@ export const RULES: StepRule[] = [
   assertValueRule,
   assertAttributeRule,
   assertCountRule,
+  totalIsRule,
   assertVisibleRule,
   assertContainsRule,
+
+  // Waits — load/seconds naturalizations before the generic wait-for assertion.
+  pageShouldLoadRule,
+  waitForLoadRule,
+  waitSecondsRule,
   waitForRule,
 
-  // Forms — placeholder fill before the generic label fill.
+  // Forms — placeholder fill before generic label fill.
   placeholderFillRule,
   fillRule,
   radioRule,
   selectRule,
   checkRule,
   uncheckRule,
+  switchToggleRule,
+  sliderRule,
   clearFieldRule,
   fileUploadRule,
+  chooseFileRule,
   focusRule,
+
+  // Actions (natural) — specific intents before the generic click variants.
+  submitFormRule,
+  addToCartRule,
+  checkoutRule,
+  placeOrderRule,
+  removeFromCartRule,
+  deleteRowRule,
+  selectAllRule,
+  couponRule,
+  acceptCookiesRule,
+  incrementRule,
+  sortByRule,
+  filterByRule,
 
   // Interaction — specific click variants & gestures BEFORE the generic click.
   screenshotRule,
@@ -122,6 +189,7 @@ export const RULES: StepRule[] = [
   dragRule,
   expandCollapseRule,
   dialogRule,
+  openElementRule,
   hoverRule,
   scrollRule,
   closeOverlayRule,
