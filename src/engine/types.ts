@@ -8,6 +8,9 @@ export type LocatorStrategy =
   | 'placeholder'
   | 'text'
   | 'testid'
+  | 'css'
+  | 'xpath'
+  | 'frame'
   | 'keyboard'
   | 'url'
 

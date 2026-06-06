@@ -8,6 +8,9 @@ const STRATEGY_ORDER: LocatorStrategy[] = [
   'placeholder',
   'text',
   'testid',
+  'css',
+  'xpath',
+  'frame',
   'keyboard',
   'url',
 ]

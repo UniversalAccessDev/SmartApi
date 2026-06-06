@@ -192,6 +192,21 @@ Supported phrasings (grouped):
   `verify url is <url>`, `verify title is <title>`, and `wait for <text>`
   (translated into a web-first assertion — **never** `waitForTimeout`).
 
+### Legacy app support (escape hatches)
+
+Modern apps expose roles/labels; legacy ones often don't. For those, name an
+explicit selector or an iframe and the engine targets it directly:
+
+- **Raw selectors** — `click #submit`, `click .btn-primary`, `click [data-test="save"]`,
+  `fill #email with jane@test.com`, `type hello into .search`,
+  `click the element with xpath //table//a`
+- **iframes** — `click Pay in the payment iframe`,
+  `in the #checkout frame, fill Card Number with 4242`
+
+These run at the highest priority, so a raw selector is never re-interpreted by
+the semantic rules. (XPath still triggers a "prefer a role/label locator"
+warning — it works, but it's brittle by nature.)
+
 It also understands many **natural phrasings** beyond the literal forms above —
 e.g. "Sign in with Google", "Register a new account", "Add the item to the cart",
 "Proceed to checkout", "Accept cookies", "Open the user menu", "Sort by name",

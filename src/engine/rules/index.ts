@@ -54,6 +54,7 @@ import {
   screenshotRule,
 } from './interaction'
 import { rowActionRule, rowContainsRule } from './tables'
+import { selectorClickRule, selectorFillRule, iframeRule } from './selectors'
 import {
   navToPageRule,
   goHomeRule,
@@ -97,6 +98,12 @@ import {
  * right priority — no other file needs to change.
  */
 export const RULES: StepRule[] = [
+  // Legacy escape hatches — explicit CSS/XPath/#id selectors & iframes run FIRST
+  // so a raw selector is never re-interpreted by the semantic rules below.
+  iframeRule,
+  selectorClickRule,
+  selectorFillRule,
+
   // Navigation
   navigateRule,
   goBackRule,

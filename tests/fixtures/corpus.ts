@@ -85,6 +85,13 @@ export const CORPUS: CorpusEntry[] = [
   { step: 'Dismiss the notification', mappable: true },
   { step: 'Take a screenshot', mappable: true },
   { step: 'Clear the search', mappable: true },
+  // legacy escape hatches — raw selectors + iframes
+  { step: 'Click #login-button', mappable: true },
+  { step: 'Click .submit-btn', mappable: true },
+  { step: 'Fill #email with jane@test.com', mappable: true },
+  { step: 'Click the element with xpath //table//button', mappable: true },
+  { step: 'Click Pay in the payment iframe', mappable: true },
+
   // genuinely out of scope (browser/window/OS-level)
   { step: 'Switch to the second tab', mappable: false },
   { step: 'Open a new tab', mappable: false },
