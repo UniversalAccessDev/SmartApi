@@ -162,7 +162,9 @@ Supported phrasings (grouped):
 - **Navigation** — `go to <url>`, `navigate to <path>`, `go back`, `go forward`,
   `reload` / `refresh the page`
 - **Auth** — `login/sign in with Email|Username as <v> and Password as <v>`,
-  `logout` / `sign out`, `verify user is logged in/out`
+  compact `login with <email>/<password>`, `logout` / `sign out`,
+  `verify user is logged in/out` (the submit button label follows the verb:
+  "sign in" → "Sign in")
 - **Click** — `click <name> [button|link|tab]`, `double-click <target>`,
   `right-click <target>`, `tap <name>`, `hover over <name>`,
   `click on the text <text>`, `click the element with test id <id>`,

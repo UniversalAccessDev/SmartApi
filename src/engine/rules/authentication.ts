@@ -35,28 +35,38 @@ export const authLoginRule: StepRule = {
 
     // Use the user's verb as the submit-button label: "sign in" -> "Sign in".
     const buttonName = /sign/i.test(lead[1]) ? 'Sign in' : 'Login'
-    const segments = lead[2].split(/\s+and\s+/i)
+    const creds = lead[2].trim()
     let identifierLabel: 'Email' | 'Username' | null = null
     let identifierValue = ''
     let passwordValue = ''
     let hasPassword = false
 
-    for (const segment of segments) {
-      const m =
-        /^(email|e-mail|username|user|login|password|pass(?:word)?)\s+(?:as\s+)?(.+?)\s*$/i.exec(
-          segment.trim(),
-        )
-      if (!m) return null // unparseable credential — defer to other rules
+    // Compact form: "login with user@test.com/Secret123" (id/password, no "and").
+    const compact = /^(\S+?)\s*\/\s*(\S+)$/.exec(creds)
+    if (compact && !/\b(?:as|and)\b/i.test(creds)) {
+      identifierValue = compact[1]
+      identifierLabel = identifierValue.includes('@') ? 'Email' : 'Username'
+      passwordValue = compact[2]
+      hasPassword = true
+    } else {
+      // Labelled form: "Email as <v> and Password as <v>".
+      for (const segment of creds.split(/\s+and\s+/i)) {
+        const m =
+          /^(email|e-mail|username|user|login|password|pass(?:word)?)\s+(?:as\s+)?(.+?)\s*$/i.exec(
+            segment.trim(),
+          )
+        if (!m) return null // unparseable credential — defer to other rules
 
-      const key = m[1].toLowerCase()
-      const value = m[2].trim()
+        const key = m[1].toLowerCase()
+        const value = m[2].trim()
 
-      if (key.startsWith('pass')) {
-        passwordValue = value
-        hasPassword = true
-      } else {
-        identifierLabel = identifierLabelFor(key)
-        identifierValue = value
+        if (key.startsWith('pass')) {
+          passwordValue = value
+          hasPassword = true
+        } else {
+          identifierLabel = identifierLabelFor(key)
+          identifierValue = value
+        }
       }
     }
 

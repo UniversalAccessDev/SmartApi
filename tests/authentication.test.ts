@@ -44,6 +44,22 @@ describe('auth-login rule', () => {
     const { rule } = run('Log in with Email as user@test.com and Password as Secret123')
     expect(rule).toBe('auth-login')
   })
+
+  it('supports the compact "login with <email>/<password>" form', () => {
+    const { lines, rule } = run('Login with user@test.com/Secret123')
+    expect(rule).toBe('auth-login')
+    expect(lines).toEqual([
+      "await page.getByLabel('Email').fill('user@test.com')",
+      "await page.getByLabel('Password', { exact: true }).fill('Secret123')",
+      "await page.getByRole('button', { name: 'Login' }).click()",
+    ])
+  })
+
+  it('compact form uses Username when the id is not an email', () => {
+    const { lines } = run('Sign in with admin / hunter2')
+    expect(lines[0]).toBe("await page.getByLabel('Username').fill('admin')")
+    expect(lines[2]).toBe("await page.getByRole('button', { name: 'Sign in' }).click()")
+  })
 })
 
 describe('auth-logout rule', () => {
