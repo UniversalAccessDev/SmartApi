@@ -121,44 +121,4 @@ describe('natural-language rules', () => {
   })
 })
 
-describe('corpus coverage guard', () => {
-  // A representative slice of real QA phrasings. If a future change drops
-  // coverage below this bar, this test fails loudly.
-  const corpus = [
-    'Go to the settings page',
-    'Go to the homepage',
-    'Go back to the previous page',
-    'Open the user menu',
-    'Sign in with Google',
-    'Register a new account',
-    'Reset my password',
-    'Log out of the application',
-    'Submit the form',
-    'Add the item to the cart',
-    'Proceed to checkout',
-    'Place the order',
-    'Remove the product from the cart',
-    'Accept all cookies',
-    'Sort by name',
-    'Switch on notifications',
-    'Choose a file',
-    'Select all rows',
-    'Delete the last row',
-    'Apply the discount code SAVE10',
-    'Increase the quantity',
-    'Move the slider to 50',
-    'Verify I am on the checkout page',
-    'Verify the modal is closed',
-    'Verify there are no results',
-    'Verify the success message',
-    'Verify the total is $50',
-    'Verify the page title contains Home',
-    'The page should load',
-    'Wait for the page to load',
-    'Wait 3 seconds',
-  ]
-  it('maps at least 90% of the corpus', () => {
-    const mapped = corpus.filter((s) => runRulesEngine([s], CTX).analyzed[0].rule !== null).length
-    expect(mapped / corpus.length).toBeGreaterThanOrEqual(0.9)
-  })
-})
+// Corpus coverage is guarded in tests/corpus.test.ts against tests/fixtures/corpus.ts.

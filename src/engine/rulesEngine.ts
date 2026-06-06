@@ -1,4 +1,4 @@
-import { EngineResult, LocatorStrategy, StepContext } from './types'
+import { EngineResult, LocatorStrategy, RuleOutput, StepContext } from './types'
 import { RULES } from './rules'
 
 /** Canonical ordering for rendering the aggregate locatorStrategy label. */
@@ -28,9 +28,17 @@ export const runRulesEngine = (steps: string[], ctx: StepContext): EngineResult 
   const confidences: number[] = []
 
   for (const step of steps) {
-    const rule = RULES.find((r) => r.apply(step, ctx) !== null)
+    // Single pass: apply each rule once and stop at the first match.
+    let matched: { name: string; output: RuleOutput } | null = null
+    for (const rule of RULES) {
+      const output = rule.apply(step, ctx)
+      if (output) {
+        matched = { name: rule.name, output }
+        break
+      }
+    }
 
-    if (!rule) {
+    if (!matched) {
       bodyLines.push(`// TODO: Smart API could not map this step -> "${step}"`)
       analyzed.push({ step, rule: null, confidence: 0.1 })
       confidences.push(0.1)
@@ -39,12 +47,11 @@ export const runRulesEngine = (steps: string[], ctx: StepContext): EngineResult 
       continue
     }
 
-    // Safe: find() above guarantees apply() returns a non-null output here.
-    const output = rule.apply(step, ctx)!
+    const { name, output } = matched
     bodyLines.push(...output.lines)
     output.strategies.forEach((s) => strategies.add(s))
     output.assumptions.forEach((a) => assumptions.add(a))
-    analyzed.push({ step, rule: rule.name, confidence: output.confidence })
+    analyzed.push({ step, rule: name, confidence: output.confidence })
     confidences.push(output.confidence)
   }
 
