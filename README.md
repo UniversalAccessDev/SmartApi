@@ -185,8 +185,18 @@ node tools/harvest.mjs https://atwallabs.com/login --org atwallabs --key <key>  
 ```
 
 It opens the page, extracts buttons/links/inputs with their accessible names,
-derives phrases, and posts them to `/learn`. (An interactive click-to-tag
-recorder can post to the same endpoint.)
+derives phrases, and posts them to `/learn`.
+
+**Interactive recorder.** For app flows behind login (which a crawler can't
+reach), `tools/recorder.mjs` opens a real browser — a QA logs in, navigates, and
+**Alt+Clicks** any element to teach it (each capture prefers `#id`, then
+`data-testid`, then role+name, then label/placeholder, and streams to `/learn`):
+
+```bash
+node tools/recorder.mjs --org atwallabs --key <key> --url https://atwallabs.com/login
+# Alt+Click elements as you explore; close the browser when done.
+node tools/recorder.mjs --smoke   # headless self-test
+```
 
 ## How the rules engine works
 
