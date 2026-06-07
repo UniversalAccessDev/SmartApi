@@ -17,6 +17,11 @@ export type LocatorStrategy =
 /** Options from the request that influence how steps are translated. */
 export interface StepContext {
   closeOverlaysWithEscape: boolean
+  /**
+   * Optional org knowledge-base resolver. Consulted BEFORE the generic rules so
+   * an org's learned/taught locators take precedence. Returns null to fall back.
+   */
+  resolveFromKb?: (step: string) => RuleOutput | null
 }
 
 /** What a rule returns when it matches a step. */

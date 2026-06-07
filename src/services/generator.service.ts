@@ -3,7 +3,7 @@ import { runRulesEngine } from '../engine/rulesEngine'
 import { buildTestFile } from '../engine/codeBuilder'
 import { formatCode } from '../utils/formatCode'
 import { validateGeneratedCode, ValidationResult } from './validator.service'
-import { AnalyzedStep } from '../engine/types'
+import { AnalyzedStep, StepContext } from '../engine/types'
 
 export interface GenerateResult {
   code: string
@@ -25,9 +25,18 @@ export interface GenerateResult {
  *   rules engine -> code builder -> Prettier -> static validation.
  * Pure and deterministic: the same input always yields the same output.
  */
-export const generate = async (input: GenerateInput): Promise<GenerateResult> => {
+export interface GenerateOptions {
+  /** Optional org knowledge-base resolver, consulted before the generic rules. */
+  resolveFromKb?: (step: string) => ReturnType<NonNullable<StepContext['resolveFromKb']>>
+}
+
+export const generate = async (
+  input: GenerateInput,
+  options: GenerateOptions = {},
+): Promise<GenerateResult> => {
   const engine = runRulesEngine(input.steps, {
     closeOverlaysWithEscape: input.closeOverlaysWithEscape,
+    resolveFromKb: options.resolveFromKb,
   })
 
   const rawCode = buildTestFile({

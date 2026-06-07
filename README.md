@@ -146,6 +146,36 @@ curl -X POST http://localhost:4000/api/v1/playwright/generate \
   }'
 ```
 
+## Per-org Knowledge Base (KB)
+
+Smart API can **learn an org's app vocabulary** so it emits locators proven
+against *that* org's UI instead of generic guesses. Knowledge is stored per org
+in SQLite (`KB_DB_PATH`, default `data/smart-api.db`). Generation consults the
+org KB **first**, then falls back to the rules engine.
+
+Scope a request to an org with the `X-Org-Id` header. Teach a mapping (the
+server builds the locator from structured fields — raw locator strings are not
+accepted):
+
+```bash
+# Teach: on AtwalLabs, "login button" is actually labelled "Sign In Now"
+curl -X POST https://smartapi.atwallabs.com/api/v1/kb/atwallabs/teach \
+  -H "Content-Type: application/json" -H "x-api-key: <key>" \
+  -d '{"phrases":["login button","sign in button"],"role":"button","name":"Sign In Now"}'
+
+# Now generation for that org uses the taught locator:
+curl -X POST https://smartapi.atwallabs.com/api/v1/playwright/generate \
+  -H "Content-Type: application/json" -H "x-api-key: <key>" -H "X-Org-Id: atwallabs" \
+  -d '{"testName":"Login","url":"https://atwallabs.com/login","steps":["Click the login button"]}'
+# -> await page.getByRole('button', { name: 'Sign In Now' }).click()   (meta.rule = "kb")
+```
+
+Teach endpoints accept one locator strategy: `role`(+`name`), `label`,
+`placeholder`, `text`, `testid`, or `css`. Inspect a KB with
+`GET /api/v1/kb/:org`. Matching is deterministic (normalized exact, then
+token-subset) — **no AI**. This is Phase 1 (manual teaching + KB-first
+generation); a recorder that learns from real exploration is planned next.
+
 ## How the rules engine works
 
 Each step is matched against an **ordered registry of rules** (`src/engine/rules/`).

@@ -2,6 +2,7 @@ import express, { Application } from 'express'
 import cors from 'cors'
 import healthRoutes from './routes/health.routes'
 import playwrightRoutes from './routes/playwright.routes'
+import kbRoutes from './routes/kb.routes'
 import { errorHandler, notFoundHandler } from './middleware/errorHandler'
 import { requireApiKey, apiKeyAuthEnabled } from './middleware/apiKey'
 import { API_PREFIX, MODEL_NAME, PRODUCT_NAME, TAGLINE } from './constants'
@@ -34,6 +35,8 @@ export const createApp = (): Application => {
   // Protect the generate API with an API key (no-op in open mode). /health and
   // the root descriptor stay public so monitoring and discovery keep working.
   app.use(`${API_PREFIX}/playwright`, requireApiKey, playwrightRoutes)
+  // Per-org knowledge base (teach + inspect), same API-key protection.
+  app.use(`${API_PREFIX}/kb`, requireApiKey, kbRoutes)
 
   app.use(notFoundHandler)
   app.use(errorHandler)

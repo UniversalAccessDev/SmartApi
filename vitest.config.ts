@@ -5,5 +5,7 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.test.ts'],
     globals: true,
+    // Keep the KB ephemeral during tests (no file written to disk).
+    env: { KB_DB_PATH: ':memory:' },
   },
 })

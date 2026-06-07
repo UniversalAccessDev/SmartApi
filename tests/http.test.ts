@@ -70,6 +70,49 @@ describe('POST /api/v1/playwright/generate', () => {
   })
 })
 
+describe('knowledge base (per-org)', () => {
+  it('teaches a phrase and uses it during generation for that org', async () => {
+    const org = 'acme'
+    const teachRes = await request(app)
+      .post(`/api/v1/kb/${org}/teach`)
+      .send({ phrases: ['login button'], role: 'button', name: 'Sign In Now' })
+    expect(teachRes.status).toBe(200)
+    expect(teachRes.body.success).toBe(true)
+    expect(teachRes.body.locator).toBe("page.getByRole('button', { name: 'Sign In Now' })")
+
+    // With the org header, the taught locator is used.
+    const withOrg = await request(app)
+      .post('/api/v1/playwright/generate')
+      .set('X-Org-Id', org)
+      .send({ testName: 't', url: 'https://acme.test', steps: ['Click the login button'] })
+    expect(withOrg.body.code).toContain("getByRole('button', { name: 'Sign In Now' }).click()")
+    expect(withOrg.body.meta.stepsAnalyzed[0].rule).toBe('kb')
+
+    // Without the org header, it falls back to the generic rule.
+    const noOrg = await request(app)
+      .post('/api/v1/playwright/generate')
+      .send({ testName: 't', url: 'https://acme.test', steps: ['Click the login button'] })
+    expect(noOrg.body.meta.stepsAnalyzed[0].rule).toBe('click')
+  })
+
+  it('rejects a teach payload with no locator', async () => {
+    const res = await request(app)
+      .post('/api/v1/kb/acme/teach')
+      .send({ phrases: ['x'] })
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe('ValidationError')
+  })
+
+  it('lists an org KB', async () => {
+    await request(app)
+      .post('/api/v1/kb/listco/teach')
+      .send({ phrases: ['cart'], css: '#cart' })
+    const res = await request(app).get('/api/v1/kb/listco')
+    expect(res.status).toBe(200)
+    expect(res.body.count).toBeGreaterThanOrEqual(1)
+  })
+})
+
 describe('unknown routes', () => {
   it('returns a 404 envelope', async () => {
     const res = await request(app).get('/does-not-exist')

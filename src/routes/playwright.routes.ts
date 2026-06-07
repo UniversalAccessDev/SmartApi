@@ -3,6 +3,8 @@ import { generateSchema } from '../schemas/generate.schema'
 import { generate } from '../services/generator.service'
 import { asyncHandler } from '../middleware/asyncHandler'
 import { MODEL_NAME, TAGLINE } from '../constants'
+import { db } from '../kb/db'
+import { getEntries, makeResolver } from '../kb/kb.service'
 
 const router = Router()
 
@@ -28,12 +30,17 @@ router.post(
       return
     }
 
-    const result = await generate(parsed.data)
+    // Org scope: when an X-Org-Id header is present, consult that org's KB first.
+    const org = (req.header('x-org-id') ?? '').trim().toLowerCase()
+    const resolveFromKb = org ? makeResolver(getEntries(db, org)) : undefined
+
+    const result = await generate(parsed.data, { resolveFromKb })
 
     res.json({
       success: true,
       model: MODEL_NAME,
       tagline: TAGLINE,
+      org: org || null,
       language: result.language,
       code: result.code,
       locatorStrategy: result.locatorStrategy,

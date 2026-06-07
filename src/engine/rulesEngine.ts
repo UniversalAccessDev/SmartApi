@@ -31,13 +31,19 @@ export const runRulesEngine = (steps: string[], ctx: StepContext): EngineResult 
   const confidences: number[] = []
 
   for (const step of steps) {
-    // Single pass: apply each rule once and stop at the first match.
+    // KB-first: an org's learned/taught locators take precedence over generic rules.
     let matched: { name: string; output: RuleOutput } | null = null
-    for (const rule of RULES) {
-      const output = rule.apply(step, ctx)
-      if (output) {
-        matched = { name: rule.name, output }
-        break
+    const kbOutput = ctx.resolveFromKb?.(step)
+    if (kbOutput) {
+      matched = { name: 'kb', output: kbOutput }
+    } else {
+      // Single pass: apply each rule once and stop at the first match.
+      for (const rule of RULES) {
+        const output = rule.apply(step, ctx)
+        if (output) {
+          matched = { name: rule.name, output }
+          break
+        }
       }
     }
 

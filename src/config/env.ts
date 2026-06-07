@@ -13,6 +13,8 @@ const EnvSchema = z.object({
   // Comma-separated list of accepted API keys. When empty, auth is disabled
   // ("open mode") — handy for local dev; set this in production to lock it down.
   API_KEYS: z.string().default(''),
+  // SQLite file for the per-org knowledge base. ':memory:' for ephemeral.
+  KB_DB_PATH: z.string().default('data/smart-api.db'),
 })
 
 const parsed = EnvSchema.safeParse(process.env)
