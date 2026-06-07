@@ -103,6 +103,33 @@ describe('knowledge base (per-org)', () => {
     expect(res.body.error).toBe('ValidationError')
   })
 
+  it('bulk-learns elements then uses them in generation', async () => {
+    const org = 'harvestco'
+    const learnRes = await request(app)
+      .post(`/api/v1/kb/${org}/learn`)
+      .send({
+        elements: [
+          { phrases: ['username field'], css: '#txtUser' },
+          { phrases: ['password field'], css: '#txtPass' },
+          { phrases: ['log on button', 'log on'], role: 'button', name: 'LOG ON' },
+        ],
+      })
+    expect(learnRes.status).toBe(200)
+    expect(learnRes.body.elements).toBe(3)
+
+    const gen = await request(app)
+      .post('/api/v1/playwright/generate')
+      .set('X-Org-Id', org)
+      .send({
+        testName: 'legacy login',
+        url: 'https://legacy.test/login',
+        steps: ['Enter admin in the username field', 'Click log on'],
+      })
+    expect(gen.body.code).toContain("await page.locator('#txtUser').fill('admin')")
+    expect(gen.body.code).toContain("getByRole('button', { name: 'LOG ON' }).click()")
+    expect(gen.body.meta.stepsAnalyzed.every((s) => s.rule === 'kb')).toBe(true)
+  })
+
   it('lists an org KB', async () => {
     await request(app)
       .post('/api/v1/kb/listco/teach')

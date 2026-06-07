@@ -173,8 +173,20 @@ curl -X POST https://smartapi.atwallabs.com/api/v1/playwright/generate \
 Teach endpoints accept one locator strategy: `role`(+`name`), `label`,
 `placeholder`, `text`, `testid`, or `css`. Inspect a KB with
 `GET /api/v1/kb/:org`. Matching is deterministic (normalized exact, then
-token-subset) — **no AI**. This is Phase 1 (manual teaching + KB-first
-generation); a recorder that learns from real exploration is planned next.
+token-subset) — **no AI**.
+
+**Bulk learning.** `POST /api/v1/kb/:org/learn` ingests many captured elements at
+once (each element is a teach payload). The harvester tool auto-learns a page:
+
+```bash
+npm i -D playwright && npx playwright install chromium
+node tools/harvest.mjs https://atwallabs.com/login --org atwallabs --key <key> --dry   # preview
+node tools/harvest.mjs https://atwallabs.com/login --org atwallabs --key <key>          # learn
+```
+
+It opens the page, extracts buttons/links/inputs with their accessible names,
+derives phrases, and posts them to `/learn`. (An interactive click-to-tag
+recorder can post to the same endpoint.)
 
 ## How the rules engine works
 

@@ -21,6 +21,8 @@ export interface TeachInput extends LocatorSpec {
   page?: string
 }
 
+export type Provenance = 'taught' | 'recorded'
+
 export interface KbEntry {
   phrase: string
   norm: string
@@ -35,6 +37,7 @@ export const teach = (
   db: KbDatabase,
   org: string,
   input: TeachInput,
+  provenance: Provenance = 'taught',
 ): { learned: string[]; locator: string; strategy: LocatorStrategy } => {
   const built = buildLocator(input)
   if (!built) {
@@ -43,19 +46,50 @@ export const teach = (
   const now = new Date().toISOString()
   const stmt = db.prepare(
     `INSERT INTO kb_entries (org, phrase, norm, locator, strategy, page, provenance, hits, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'taught', 0, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
   )
   const learned: string[] = []
   const tx = db.transaction((phrases: string[]) => {
     for (const phrase of phrases) {
       const norm = normalize(phrase)
       if (!norm) continue
-      stmt.run(org, phrase, norm, built.expr, built.strategy, input.page ?? null, now, now)
+      stmt.run(
+        org,
+        phrase,
+        norm,
+        built.expr,
+        built.strategy,
+        input.page ?? null,
+        provenance,
+        now,
+        now,
+      )
       learned.push(phrase)
     }
   })
   tx(input.phrases)
   return { learned, locator: built.expr, strategy: built.strategy }
+}
+
+/** Batch-ingest captured elements (e.g. from a recorder/explorer). */
+export const learn = (
+  db: KbDatabase,
+  org: string,
+  elements: TeachInput[],
+): { elements: number; phrases: number; skipped: number } => {
+  let phrases = 0
+  let skipped = 0
+  const tx = db.transaction((items: TeachInput[]) => {
+    for (const item of items) {
+      try {
+        phrases += teach(db, org, item, 'recorded').learned.length
+      } catch {
+        skipped += 1 // element with no usable locator — skip, keep going
+      }
+    }
+  })
+  tx(elements)
+  return { elements: elements.length - skipped, phrases, skipped }
 }
 
 export const getEntries = (db: KbDatabase, org: string): KbEntry[] =>
