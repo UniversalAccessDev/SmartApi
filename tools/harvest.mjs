@@ -65,25 +65,37 @@ const raw = await page.evaluate(() => {
   const seen = new Set()
   const push = (e) => {
     const k = JSON.stringify(e)
-    if (!seen.has(k) && e.name) {
+    // Keep anything we can locate: a name, an id, a placeholder, or a testid.
+    if (!seen.has(k) && (e.name || e.id || e.placeholder || e.testid)) {
       seen.add(k)
       out.push(e)
     }
   }
+  const tid = (el) => el.getAttribute('data-testid') || el.getAttribute('data-test') || ''
 
   document.querySelectorAll('button, [role=button], input[type=submit], input[type=button]').forEach((el) =>
-    push({ kind: 'button', name: accName(el), testid: el.getAttribute('data-testid') || el.getAttribute('data-test') || '' }),
+    push({ kind: 'button', name: accName(el), testid: tid(el) }),
   )
   document.querySelectorAll('a[href]').forEach((el) => push({ kind: 'link', name: accName(el) }))
   document.querySelectorAll('input:not([type=hidden]):not([type=submit]):not([type=button]), textarea, select').forEach((el) => {
     const label =
       (el.id && document.querySelector(`label[for="${el.id}"]`)?.innerText) || el.closest('label')?.innerText || el.getAttribute('aria-label') || ''
-    push({ kind: 'field', name: (label || '').trim().replace(/\s+/g, ' ').slice(0, 80), placeholder: el.getAttribute('placeholder') || '', testid: el.getAttribute('data-testid') || el.getAttribute('data-test') || '' })
+    push({
+      kind: 'field',
+      name: (label || '').trim().replace(/\s+/g, ' ').slice(0, 80),
+      id: el.id || '',
+      placeholder: el.getAttribute('placeholder') || '',
+      testid: tid(el),
+    })
   })
   return out
 })
 
 await browser.close()
+
+// Prefer a stable #id selector for fields (avoids label collisions like a
+// "Show password" toggle also matching getByLabel('Password')).
+const idCss = (id) => (/^[A-Za-z][\w-]*$/.test(id) ? `#${id}` : `[id="${id}"]`)
 
 // Map harvested elements -> KB teach payloads.
 const elements = []
@@ -93,9 +105,15 @@ for (const e of raw) {
   } else if (e.kind === 'link' && e.name) {
     elements.push({ phrases: [`${e.name} link`, e.name], role: 'link', name: e.name, page: route })
   } else if (e.kind === 'field') {
-    if (e.name) elements.push({ phrases: [`${e.name} field`, e.name], label: e.name, page: route })
-    else if (e.placeholder) elements.push({ phrases: [`${e.placeholder} field`, e.placeholder], placeholder: e.placeholder, page: route })
-    else if (e.testid) elements.push({ phrases: [e.testid], testid: e.testid, page: route })
+    const phraseSrc = e.name || e.placeholder || e.testid || e.id
+    if (!phraseSrc) continue
+    const phrases = [`${phraseSrc} field`, phraseSrc]
+    let loc
+    if (e.id) loc = { css: idCss(e.id) }
+    else if (e.name) loc = { label: e.name }
+    else if (e.placeholder) loc = { placeholder: e.placeholder }
+    else loc = { testid: e.testid }
+    elements.push({ phrases, ...loc, page: route })
   }
 }
 
