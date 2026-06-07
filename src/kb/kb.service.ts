@@ -44,6 +44,9 @@ export const teach = (
     throw new Error('A locator is required (role/label/placeholder/text/testid/css).')
   }
   const now = new Date().toISOString()
+  // Upsert by (org, norm): re-teaching or re-harvesting a phrase replaces the
+  // old locator so the KB is self-correcting and never accumulates duplicates.
+  const del = db.prepare(`DELETE FROM kb_entries WHERE org = ? AND norm = ?`)
   const stmt = db.prepare(
     `INSERT INTO kb_entries (org, phrase, norm, locator, strategy, page, provenance, hits, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
@@ -53,6 +56,7 @@ export const teach = (
     for (const phrase of phrases) {
       const norm = normalize(phrase)
       if (!norm) continue
+      del.run(org, norm)
       stmt.run(
         org,
         phrase,
@@ -70,6 +74,10 @@ export const teach = (
   tx(input.phrases)
   return { learned, locator: built.expr, strategy: built.strategy }
 }
+
+/** Remove all KB entries for an org (reset). Returns the number of rows deleted. */
+export const clearOrg = (db: KbDatabase, org: string): number =>
+  db.prepare(`DELETE FROM kb_entries WHERE org = ?`).run(org).changes
 
 /** Batch-ingest captured elements (e.g. from a recorder/explorer). */
 export const learn = (

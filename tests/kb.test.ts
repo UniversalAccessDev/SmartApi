@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { openDb, KbDatabase } from '../src/kb/db'
-import { teach, getEntries, makeResolver, normalize } from '../src/kb/kb.service'
+import { teach, learn, getEntries, makeResolver, normalize, clearOrg } from '../src/kb/kb.service'
 
 let db: KbDatabase
 beforeEach(() => {
@@ -32,6 +32,26 @@ describe('teach + getEntries', () => {
     teach(db, 'orgB', { phrases: ['y'], css: '#b' })
     expect(getEntries(db, 'orgA')).toHaveLength(1)
     expect(getEntries(db, 'orgB')).toHaveLength(1)
+  })
+
+  it('upserts: re-teaching a phrase replaces the old locator (no duplicates)', () => {
+    teach(db, 'o', { phrases: ['sign in button'], role: 'button', name: 'Sign In Now' })
+    teach(db, 'o', { phrases: ['sign in button'], role: 'button', name: 'Sign in' })
+    const entries = getEntries(db, 'o')
+    expect(entries).toHaveLength(1)
+    expect(entries[0].locator).toBe("page.getByRole('button', { name: 'Sign in' })")
+  })
+
+  it('learn() bulk-ingests and clearOrg() resets', () => {
+    const r = learn(db, 'o', [
+      { phrases: ['a'], css: '#a' },
+      { phrases: ['b'], css: '#b' },
+      { phrases: ['bad'] } as never, // no locator -> skipped
+    ])
+    expect(r.elements).toBe(2)
+    expect(r.skipped).toBe(1)
+    expect(clearOrg(db, 'o')).toBe(2)
+    expect(getEntries(db, 'o')).toHaveLength(0)
   })
 
   it('builds css/testid/label locators', () => {

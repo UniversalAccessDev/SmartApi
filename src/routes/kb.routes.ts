@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { teachSchema } from '../schemas/teach.schema'
 import { learnSchema } from '../schemas/learn.schema'
-import { teach, learn, getEntries } from '../kb/kb.service'
+import { teach, learn, getEntries, clearOrg } from '../kb/kb.service'
 import { db } from '../kb/db'
 import { asyncHandler } from '../middleware/asyncHandler'
 import { MODEL_NAME } from '../constants'
@@ -55,6 +55,15 @@ router.get(
   asyncHandler(async (req, res) => {
     const entries = getEntries(db, orgOf(req))
     res.json({ success: true, org: orgOf(req), count: entries.length, entries })
+  }),
+)
+
+/** DELETE /api/v1/kb/:org — reset an org's KB. */
+router.delete(
+  '/:org',
+  asyncHandler(async (req, res) => {
+    const deleted = clearOrg(db, orgOf(req))
+    res.json({ success: true, org: orgOf(req), deleted })
   }),
 )
 
