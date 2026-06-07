@@ -85,18 +85,17 @@ export const learn = (
   org: string,
   elements: TeachInput[],
 ): { elements: number; phrases: number; skipped: number } => {
+  // No outer transaction here: each teach() is already atomic, and nesting
+  // transactions around a loop that intentionally swallows errors miscounts.
   let phrases = 0
   let skipped = 0
-  const tx = db.transaction((items: TeachInput[]) => {
-    for (const item of items) {
-      try {
-        phrases += teach(db, org, item, 'recorded').learned.length
-      } catch {
-        skipped += 1 // element with no usable locator — skip, keep going
-      }
+  for (const item of elements) {
+    try {
+      phrases += teach(db, org, item, 'recorded').learned.length
+    } catch {
+      skipped += 1 // element with no usable locator — skip, keep going
     }
-  })
-  tx(elements)
+  }
   return { elements: elements.length - skipped, phrases, skipped }
 }
 

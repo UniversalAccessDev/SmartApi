@@ -44,11 +44,12 @@ describe('teach + getEntries', () => {
 
   it('learn() bulk-ingests and clearOrg() resets', () => {
     const r = learn(db, 'o', [
-      { phrases: ['a'], css: '#a' },
-      { phrases: ['b'], css: '#b' },
-      { phrases: ['bad'] } as never, // no locator -> skipped
+      { phrases: ['cart'], css: '#cart' },
+      { phrases: ['wishlist'], css: '#wishlist' },
+      { phrases: ['broken'] } as never, // no locator -> skipped
     ])
     expect(r.elements).toBe(2)
+    expect(r.phrases).toBe(2)
     expect(r.skipped).toBe(1)
     expect(clearOrg(db, 'o')).toBe(2)
     expect(getEntries(db, 'o')).toHaveLength(0)
