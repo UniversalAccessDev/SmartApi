@@ -140,6 +140,22 @@ describe('knowledge base (per-org)', () => {
   })
 })
 
+describe('usage endpoint', () => {
+  it('records calls and returns a summary', async () => {
+    await request(app)
+      .post('/api/v1/playwright/generate')
+      .set('X-Org-Id', 'usagetest')
+      .send({ testName: 't', url: 'https://e.com', steps: ['Click Save', 'Verify Done appears'] })
+    const res = await request(app).get('/api/v1/usage')
+    expect(res.status).toBe(200)
+    expect(res.body.success).toBe(true)
+    expect(res.body.totalCalls).toBeGreaterThan(0)
+    expect(res.body.generateCalls).toBeGreaterThan(0)
+    expect(Array.isArray(res.body.byEndpoint)).toBe(true)
+    expect(Array.isArray(res.body.recent)).toBe(true)
+  })
+})
+
 describe('unknown routes', () => {
   it('returns a 404 envelope', async () => {
     const res = await request(app).get('/does-not-exist')

@@ -3,6 +3,9 @@ import cors from 'cors'
 import healthRoutes from './routes/health.routes'
 import playwrightRoutes from './routes/playwright.routes'
 import kbRoutes from './routes/kb.routes'
+import usageRoutes from './routes/usage.routes'
+import { usageLogger } from './middleware/usageLogger'
+import { db } from './kb/db'
 import { errorHandler, notFoundHandler } from './middleware/errorHandler'
 import { requireApiKey, apiKeyAuthEnabled } from './middleware/apiKey'
 import { API_PREFIX, MODEL_NAME, PRODUCT_NAME, TAGLINE } from './constants'
@@ -17,6 +20,8 @@ export const createApp = (): Application => {
 
   app.use(cors())
   app.use(express.json({ limit: '256kb' }))
+  // Record usage (method/path/org/status/latency) for every request except /health.
+  app.use(usageLogger(db))
 
   // Service descriptor — handy for humans hitting the root.
   app.get('/', (_req, res) => {
@@ -27,6 +32,7 @@ export const createApp = (): Application => {
       endpoints: {
         health: 'GET /health',
         generate: `POST ${API_PREFIX}/playwright/generate`,
+        usage: `GET ${API_PREFIX}/usage`,
       },
     })
   })
@@ -37,6 +43,8 @@ export const createApp = (): Application => {
   app.use(`${API_PREFIX}/playwright`, requireApiKey, playwrightRoutes)
   // Per-org knowledge base (teach + inspect), same API-key protection.
   app.use(`${API_PREFIX}/kb`, requireApiKey, kbRoutes)
+  // Usage summary (totals, by endpoint/org/day, recent), API-key protected.
+  app.use(`${API_PREFIX}/usage`, requireApiKey, usageRoutes)
 
   app.use(notFoundHandler)
   app.use(errorHandler)

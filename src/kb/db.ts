@@ -31,6 +31,19 @@ export const openDb = (file: string): KbDatabase => {
       updated_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_kb_org_norm ON kb_entries(org, norm);
+
+    CREATE TABLE IF NOT EXISTS usage_log (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts          TEXT NOT NULL,
+      method      TEXT NOT NULL,
+      path        TEXT NOT NULL,
+      org         TEXT,
+      status      INTEGER NOT NULL,
+      duration_ms INTEGER NOT NULL,
+      steps       INTEGER,
+      confidence  REAL
+    );
+    CREATE INDEX IF NOT EXISTS idx_usage_ts ON usage_log(ts);
   `)
   return db
 }

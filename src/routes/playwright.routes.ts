@@ -36,6 +36,9 @@ router.post(
 
     const result = await generate(parsed.data, { resolveFromKb })
 
+    // Enrich the usage log for this call.
+    res.locals.usage = { steps: parsed.data.steps.length, confidence: result.confidenceScore }
+
     res.json({
       success: true,
       model: MODEL_NAME,
