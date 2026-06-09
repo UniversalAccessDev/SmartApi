@@ -1,0 +1,8 @@
+{
+  "name": "smart-api-executor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Claude-free Playwright executor for Smart API action-JSON: finds elements (with deterministic self-healing), runs actions, screenshots, and reads page data.",
+  "bin": { "smartx": "cli.js" },
+  "dependencies": { "playwright": "^1.56.0" }
+}
