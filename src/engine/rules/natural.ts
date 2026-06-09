@@ -19,6 +19,40 @@ export const bareLoginRule: StepRule = {
   },
 }
 
+/**
+ * Conditional action: "If the cookie banner appears, accept cookies",
+ * "When a popup is visible, close it", "If the modal shows up, click Dismiss".
+ * Emits a guarded single-line statement; resolves the inner action through the
+ * full registry so any supported action can be the conditional body.
+ */
+export const conditionalRule: StepRule = {
+  name: 'conditional',
+  description: 'Runs an action only if an element is visible: "if <X> appears, <action>"',
+  apply(step, ctx) {
+    const m =
+      /^(?:if|when)\s+(.+?)\s+(?:appears?|is\s+(?:visible|present|shown|displayed)|shows?\s+up|pops?\s+up|is\s+there|exists?)\s*,?\s+(?:then\s+)?(.+)$/i.exec(
+        step.trim(),
+      )
+    if (!m || !ctx.resolveStep) return null
+    const guard = cleanLabel(m[1])
+    const actionPhrase = m[2].trim().replace(/^then\s+/i, '')
+    const inner = ctx.resolveStep(actionPhrase)
+    if (!inner || inner.lines.length === 0) return null
+
+    const guardLoc = `page.getByText(${lit(guard)})`
+    const body = inner.lines.length === 1 ? inner.lines[0] : `{ ${inner.lines.join('; ')} }`
+    return {
+      lines: [`if (await ${guardLoc}.isVisible()) ${body}`],
+      strategies: ['text', ...inner.strategies],
+      assumptions: [
+        `Conditional: the action runs only if "${guard}" is visible (no error if it is absent).`,
+        ...inner.assumptions,
+      ],
+      confidence: Math.min(inner.confidence, 0.6),
+    }
+  },
+}
+
 /** "Confirm the deletion", "Cancel", "Click Yes". */
 export const confirmCancelRule: StepRule = {
   name: 'confirm-cancel',

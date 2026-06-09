@@ -95,6 +95,7 @@ import {
   filterByRule,
   totalIsRule,
   pageShouldLoadRule,
+  conditionalRule,
   bareLoginRule,
   confirmCancelRule,
   chooseOptionRule,
@@ -110,6 +111,10 @@ import {
  * right priority — no other file needs to change.
  */
 export const RULES: StepRule[] = [
+  // Control flow first — a conditional wraps an inner action, so it must claim
+  // the step before any rule tries to match the "if X is visible" prefix.
+  conditionalRule,
+
   // Legacy escape hatches — explicit CSS/XPath/#id selectors & iframes run FIRST
   // so a raw selector is never re-interpreted by the semantic rules below.
   iframeRule,

@@ -28,10 +28,19 @@ const round2 = (n: number): number => Math.round(n * 100) / 100
  * otherwise-unmapped steps ("1. Click Login", "Then the page loads", "Click OK.")
  * without each rule needing to special-case the noise.
  */
+/** Does the step read as a conditional ("if/when X is visible/appears, ...")? */
+const isConditional = (step: string): boolean =>
+  /^(?:if|when|unless)\b/i.test(step.trim()) &&
+  /\b(?:appears?|is\s+(?:visible|present|shown|displayed)|shows?\s+up|pops?\s+up|exists?|is\s+there)\b/i.test(
+    step,
+  )
+
 const normalizeStep = (step: string): string => {
   let s = step.trim()
   // Leading list markers: "1.", "2)", "- ", "* "
   s = s.replace(/^\s*(?:\d+[.)]|[-*•])\s+/, '')
+  // Preserve conditionals: don't strip their leading "When"/"If" as Gherkin noise.
+  if (isConditional(s)) return s.replace(/[.!]+$/, '').trim()
   // "Step 3:" / "Step 3 -" prefixes
   s = s.replace(/^step\s+\d+\s*[:.)-]?\s+/i, '')
   // Gherkin keywords + optional subject ("Given the user ", "When I ", "Then ")
@@ -60,6 +69,8 @@ const mapsToRule = (step: string, ctx: StepContext): boolean =>
  * named "Save and Continue" (whose halves don't both map to actions).
  */
 const expandStep = (step: string, ctx: StepContext): string[] => {
+  // Conditionals are control-flow, not compounds — never split them.
+  if (/^(?:if|when|unless)\b/i.test(step.trim())) return [step]
   // Connectors: "and then" / "then" / "and", an optional leading comma, plus
   // "&"/"+" and a sentence boundary (". Then" / ". ").
   const CONNECTOR = /\s*,?\s+(?:and\s+then|then|and)\s+|\s*&{1,2}\s*|\s+\+\s+|\.\s+(?=[A-Z])/
@@ -77,7 +88,7 @@ const expandStep = (step: string, ctx: StepContext): string[] => {
   return segments.every((seg) => mapsToRule(seg, ctx)) ? segments : [step]
 }
 
-export const runRulesEngine = (steps: string[], ctx: StepContext): EngineResult => {
+export const runRulesEngine = (steps: string[], baseCtx: StepContext): EngineResult => {
   const bodyLines: string[] = []
   const strategies = new Set<LocatorStrategy>()
   const assumptions = new Set<string>()
@@ -85,6 +96,19 @@ export const runRulesEngine = (steps: string[], ctx: StepContext): EngineResult 
   const analyzed: EngineResult['analyzed'] = []
   const unmatchedSteps: string[] = []
   const confidences: number[] = []
+
+  // Augment the context with a sub-step resolver (KB-first, then the registry)
+  // so compound rules (e.g. conditional) can translate their inner action.
+  const ctx: StepContext = { ...baseCtx }
+  ctx.resolveStep = (sub: string): RuleOutput | null => {
+    const kb = ctx.resolveFromKb?.(sub)
+    if (kb) return kb
+    for (const rule of RULES) {
+      const out = rule.apply(sub, ctx)
+      if (out) return out
+    }
+    return null
+  }
 
   // Normalize (strip list/Gherkin/sequencer noise) then expand compound
   // "X and Y" steps into individual actions.

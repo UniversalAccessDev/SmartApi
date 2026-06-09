@@ -87,8 +87,21 @@ export const openapiSpec = {
               'assertTitle',
               'assertUrl',
               'assertVisible',
+              'conditionalclick',
               'note',
             ],
+          },
+          guard: {
+            type: 'object',
+            description: 'conditionalclick: element that must be visible for the click to run',
+            properties: {
+              by: { type: 'string', enum: ['text', 'label', 'css', 'xpath', 'id'] },
+              value: { type: 'string' },
+            },
+          },
+          click: {
+            type: 'object',
+            description: 'conditionalclick: the click action performed when the guard is visible',
           },
           url: { type: 'string' },
           ms: { type: 'integer' },

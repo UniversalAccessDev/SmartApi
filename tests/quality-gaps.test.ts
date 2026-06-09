@@ -164,9 +164,11 @@ describe('quality gaps — widgets, roles & scoping', () => {
 })
 
 describe('quality gaps — honest non-mapping', () => {
-  it('does NOT guess at conditional control flow', () => {
+  it('maps conditional control flow to a guarded action', () => {
     const r = runRulesEngine(['If the popup appears, close it'], ctx)
-    expect(r.unmatchedSteps).toContain('If the popup appears, close it')
+    expect(r.analyzed[0].rule).toBe('conditional')
+    expect(r.bodyLines[0]).toContain('if (await page.getByText')
+    expect(r.bodyLines[0]).toContain('.isVisible())')
   })
 
   it('does NOT guess a value-less "Enter password"', () => {

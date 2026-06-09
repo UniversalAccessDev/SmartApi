@@ -111,6 +111,21 @@ describe('Issue 3 — action-JSON output format', () => {
     expect(actions[0]).toEqual({ type: 'click', target: { by: 'text', value: 'Edit' } })
   })
 
+  it('maps a conditional to conditionalclick (actions) and a guarded if (playwright)', async () => {
+    const pw = await gen(['If the cookie banner appears, accept cookies'])
+    expect(pw.code).toContain("if (await page.getByText('cookie banner').isVisible())")
+
+    const r = await gen(['If the cookie banner appears, accept cookies'], {
+      outputFormat: 'actions',
+    })
+    const cc = r.actions.find((a) => a.type === 'conditionalclick') as
+      | { type: 'conditionalclick'; guard: { by: string; value: string }; click: unknown }
+      | undefined
+    expect(cc).toBeDefined()
+    expect(cc!.guard).toEqual({ by: 'text', value: 'cookie banner' })
+    expect(cc!.click).toEqual({ type: 'click', target: { by: 'text', value: 'accept' } })
+  })
+
   it('test-id and css/xpath locators map to the right "by"', () => {
     const actions = toActions([
       "await page.getByTestId('submit-btn').click()",

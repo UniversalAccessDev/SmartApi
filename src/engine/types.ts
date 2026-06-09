@@ -22,6 +22,12 @@ export interface StepContext {
    * an org's learned/taught locators take precedence. Returns null to fall back.
    */
   resolveFromKb?: (step: string) => RuleOutput | null
+  /**
+   * Resolve a sub-step through the full rule registry (KB-first). Used by
+   * compound rules like the conditional ("if X is visible, click Y") to
+   * translate the inner action. Set by the engine; returns null if unmappable.
+   */
+  resolveStep?: (step: string) => RuleOutput | null
 }
 
 /** What a rule returns when it matches a step. */

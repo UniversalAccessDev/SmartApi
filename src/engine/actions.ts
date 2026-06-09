@@ -26,6 +26,7 @@ export type Action =
   | { type: 'assertTitle'; contains: string }
   | { type: 'assertUrl'; contains: string }
   | { type: 'assertVisible'; target: Target }
+  | { type: 'conditionalclick'; guard: Target; click: { type: 'click'; target: Target } }
   | { type: 'note'; text: string }
 
 // JS string/regex literal fragments used across the statement patterns.
@@ -121,6 +122,20 @@ const toAction = (raw: string): Action => {
   }
 
   let m: RegExpExecArray | null
+
+  // Conditional: "if (await <guard>.isVisible()) <action>" — must run before the
+  // generic click match (the line contains a .click()). Maps a click body to a
+  // conditionalclick; anything else stays a note.
+  m = /^if \(await (.+?)\.isVisible\(\)\)\s+(.+)$/.exec(s)
+  if (m) {
+    const guard = parseTarget(`page.${m[1].replace(/^page\./, '')}`)
+    const inner = m[2].trim()
+    if (guard && /\.(?:click|dblclick)\(/.test(inner) && !inner.startsWith('{')) {
+      const target = parseTarget(inner)
+      if (target) return { type: 'conditionalclick', guard, click: { type: 'click', target } }
+    }
+    return note(`Conditional on ${JSON.stringify(guard)}: ${inner.replace(/^await\s+/, '')}`)
+  }
 
   m = new RegExp(`^await page\\.goto\\((${QUOTED})\\)$`).exec(s)
   if (m) return { type: 'goto', url: argValue(m[1]) }
