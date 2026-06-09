@@ -190,9 +190,37 @@ export const waitForRule: StepRule = {
   name: 'wait-for',
   description: 'Waits for an element via assertion: "wait for <text> to appear/load"',
   apply(step) {
+    const s = step.trim()
+    // Disappearance: "wait until the spinner disappears / modal closes / X is gone" -> toBeHidden.
+    const gone =
+      /^wait\s+(?:for|until)\s+(.+?)\s+(?:to\s+(?:disappear|vanish|go away|close|clear|hide|fade out)|disappears?|vanishes?|goes?\s+away|closes?|clears?|is\s+(?:gone|hidden|no\s+longer\s+visible))\b.*$/i.exec(
+        s,
+      )
+    if (gone) {
+      const text = cleanText(gone[1])
+      return {
+        lines: [`await expect(page.getByText(${lit(text)})).toBeHidden()`],
+        strategies: ['text'],
+        assumptions: [`Converted a wait into a web-first "hidden" assertion on "${text}".`],
+        confidence: 0.65,
+      }
+    }
+    // Async completion: "wait for the AJAX request to complete / partial refresh".
+    if (
+      /^wait\s+(?:for|until)\s+.*\b(?:ajax|request|network|partial\s+refresh|data\s+to\s+load|finish(?:es|ed)?\s+loading)\b/i.test(
+        s,
+      )
+    ) {
+      return {
+        lines: [`await page.waitForLoadState('networkidle')`],
+        strategies: [],
+        assumptions: ['Interpreted as waiting for network idle.'],
+        confidence: 0.6,
+      }
+    }
     const match =
       /^wait\s+(?:for|until)\s+(.+?)(?:\s+to\s+(?:appear|be\s+visible|load|show)|\s+(?:loads?|appears?|shows?|is\s+visible))?$/i.exec(
-        step.trim(),
+        s,
       )
     if (!match) return null
 
@@ -325,10 +353,23 @@ export const assertCheckedRule: StepRule = {
       }
     }
     const checked =
-      /^(?:verify|assert|ensure|confirm|check)\s+(?:that\s+)?(?:the\s+)?(.+?)\s+is\s+(?:checked|ticked|selected)$/i.exec(
+      /^(?:verify|assert|ensure|confirm|check|make sure)\s+(?:that\s+)?(?:the\s+)?(.+?)\s+is\s+(?:checked|ticked|selected|active)$/i.exec(
         s,
       )
     if (checked) {
+      // "the Reports tab is selected/active" -> aria-selected on a tab.
+      const tab = /^(.*?)\s+tab$/i.exec(checked[1].trim())
+      if (tab) {
+        const name = cleanLabel(tab[1])
+        return {
+          lines: [
+            `await expect(page.getByRole('tab', { name: ${lit(name)} })).toHaveAttribute('aria-selected', 'true')`,
+          ],
+          strategies: ['role'],
+          assumptions: [`Assumed "${name}" is a tab; checked aria-selected.`],
+          confidence: 0.66,
+        }
+      }
       const name = cleanLabel(checked[1])
       return {
         lines: [`await expect(page.getByLabel(${lit(name)})).toBeChecked()`],
@@ -414,11 +455,11 @@ export const assertFocusedRule: StepRule = {
   apply(step) {
     const s = step.trim()
     const m =
-      /^(?:verify|assert|ensure|confirm|check)\s+(?:that\s+)?(?:the\s+)?(.+?)\s+(?:field\s+)?is\s+(?:focused|active|highlighted)$/i.exec(
+      /^(?:verify|assert|ensure|confirm|check|make sure)\s+(?:that\s+)?(?:the\s+)?(.+?)\s+(?:field\s+)?is\s+(?:focused|active|highlighted|in\s+focus)$/i.exec(
         s,
-      ) || /^(.+?)\s+should\s+be\s+focused$/i.exec(s)
+      ) || /^(.+?)\s+should\s+(?:be\s+focused|have\s+focus)$/i.exec(s)
     if (!m) return null
-    const field = m[1].trim()
+    const field = cleanLabel(m[1])
     return {
       lines: [`await expect(page.getByLabel(${lit(field)})).toBeFocused()`],
       strategies: ['label'],
@@ -434,15 +475,41 @@ export const assertEmptyRule: StepRule = {
   description: 'Asserts an input is empty: "verify the <field> field is empty"',
   apply(step) {
     const match =
-      /^(?:verify|assert|ensure|confirm|check)\s+(?:that\s+)?(?:the\s+)?(.+?)\s+(?:field\s+)?is\s+(?:empty|blank|cleared)$/i.exec(
+      /^(?:verify|assert|ensure|confirm|check|make sure)\s+(?:that\s+)?(?:the\s+)?(.+?)\s+(?:field\s+)?is\s+(?:empty|blank|cleared|has\s+no\s+\w+)$/i.exec(
         step.trim(),
       )
     if (!match) return null
-    const field = match[1].trim()
+    const subject = cleanLabel(match[1])
+    // A collection being "empty" is a count assertion, not an input value.
+    const COLLECTION: Record<string, string> = {
+      table: 'row',
+      grid: 'row',
+      list: 'listitem',
+      results: 'listitem',
+      'results list': 'listitem',
+      'search results': 'listitem',
+    }
+    const role = COLLECTION[subject.toLowerCase()]
+    if (role) {
+      return {
+        lines: [`await expect(page.getByRole('${role}')).toHaveCount(0)`],
+        strategies: ['role'],
+        assumptions: [`Asserted no ${role}s; if a header row is present, expect 1 instead of 0.`],
+        confidence: 0.62,
+      }
+    }
+    if (/^(?:cart|basket|bag|inbox)$/i.test(subject)) {
+      return {
+        lines: [`await expect(page.getByText(/empty|no items|nothing/i)).toBeVisible()`],
+        strategies: ['text'],
+        assumptions: [`Asserted an empty-state message for the ${subject}.`],
+        confidence: 0.55,
+      }
+    }
     return {
-      lines: [`await expect(page.getByLabel(${lit(field)})).toHaveValue('')`],
+      lines: [`await expect(page.getByLabel(${lit(subject)})).toHaveValue('')`],
       strategies: ['label'],
-      assumptions: [`Assumed "${field}" is an input reachable via getByLabel().`],
+      assumptions: [`Assumed "${subject}" is an input reachable via getByLabel().`],
       confidence: 0.68,
     }
   },

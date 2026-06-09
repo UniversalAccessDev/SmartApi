@@ -19,11 +19,22 @@ const toUrl = (raw: string): string | null => {
       '',
     )
     .trim()
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(t)) return t // full scheme URL (query may contain spaces)
+  // Strip trailing asides/targets: "(staging)", "in a new tab", "in the background".
+  t = t
+    .replace(/\s*\([^)]*\)\s*$/, '')
+    .replace(/\s+in\s+(?:a\s+|the\s+)?(?:new|background|same|another)\s+(?:tab|window)$/i, '')
+    .trim()
+  // Encode spaces so a query string with spaces stays ONE url (never truncate).
+  const enc = (u: string): string => u.replace(/ /g, '%20')
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(t)) return enc(t) // full scheme URL
+  if (/^(?:about:|data:|blob:)/i.test(t)) return t
   if (/^(?:mailto:|tel:)/i.test(t)) return t.split(/\s/)[0]
-  if (t.startsWith('/')) return t.split(/\s/)[0] // absolute path
-  const bare = /^((?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\/\S*)?)/i.exec(t)
-  if (bare) return `https://${bare[1].replace(/^www\./i, '')}`
+  if (t.startsWith('/')) return enc(t) // absolute path (keep the whole query)
+  const bare = /^((?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+(?::\d+)?(?:\/\S*)?)/i.exec(t)
+  if (bare) return `https://${enc(bare[1].replace(/^www\./i, ''))}`
+  // host:port like localhost:3000/admin
+  const hostPort = /^(localhost(?::\d+)?(?:\/\S*)?)/i.exec(t)
+  if (hostPort) return `https://${enc(hostPort[1])}`
   return null
 }
 

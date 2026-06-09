@@ -1,7 +1,7 @@
 import { StepRule } from '../types'
 import { lit } from '../../utils/literal'
 import { slugify } from '../../utils/slug'
-import { unquote, extractQuoted, stripFiller } from '../text'
+import { unquote, extractQuoted, stripFiller, iconAffordance } from '../text'
 
 // Bare role nouns → ARIA role (for "click the first <noun>" / nth selection).
 const ROLE_NOUNS: Record<string, string> = {
@@ -92,6 +92,7 @@ export const pressKeyRule: StepRule = {
       .replace(/\s+(?:to|in order to|so that|which|and then|then|on)\b.*$/, '')
       .replace(/\s+(?:once|twice|\d+\s+times|x\s*\d+)\b.*$/, '')
       .replace(/\s+(?:together|simultaneously|at once)\b.*$/, '')
+      .replace(/\s+plus\s+/g, '+') // "control plus c" -> "control+c"
       .replace(/\b(ctrl|control|cmd|command|meta|win|shift|alt|option)\s+and\s+/g, '$1+')
       .trim()
 
@@ -274,6 +275,19 @@ export const clickRule: StepRule = {
   apply(step) {
     const match = /^(?:click|tap|hit|press)\s+(?:on\s+)?(.+?)\s*$/i.exec(step.trim())
     if (!match) return null
+
+    // Icon-only affordance ("the gear icon", "☰") -> a likely accessible-name regex.
+    const icon = iconAffordance(match[1])
+    if (icon) {
+      return {
+        lines: [`await page.getByRole('button', { name: /${icon}/i }).click()`],
+        strategies: ['role'],
+        assumptions: [
+          `Mapped an icon affordance to likely accessible name(s) /${icon}/i; verify against the app.`,
+        ],
+        confidence: 0.55,
+      }
+    }
 
     const { role: detected, name } = roleAndName(match[1])
     const role = detected ?? 'button'

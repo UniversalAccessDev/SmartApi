@@ -96,6 +96,7 @@ import {
   totalIsRule,
   pageShouldLoadRule,
   conditionalRule,
+  allCheckboxesRule,
   bareLoginRule,
   confirmCancelRule,
   chooseOptionRule,
@@ -114,6 +115,8 @@ export const RULES: StepRule[] = [
   // Control flow first — a conditional wraps an inner action, so it must claim
   // the step before any rule tries to match the "if X is visible" prefix.
   conditionalRule,
+  // Quantified check/uncheck ("all the checkboxes") before the single check rule.
+  allCheckboxesRule,
 
   // Legacy escape hatches — explicit CSS/XPath/#id selectors & iframes run FIRST
   // so a raw selector is never re-interpreted by the semantic rules below.

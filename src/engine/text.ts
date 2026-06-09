@@ -53,7 +53,7 @@ const POSITION_NOUNS =
 
 // Leading "the button labeled / link that reads / element with the text" preamble.
 const PREAMBLE =
-  /^(?:the\s+)?(?:button|link|element|menu item|item|icon|tab|field|option|checkbox|box|toggle|switch|cell|row|heading|image)\s+(?:labell?ed|that\s+(?:reads?|says?)|which\s+(?:reads?|says?)|with\s+(?:the\s+)?(?:text|label|name|caption)|named|titled|marked|reading|saying)\s+/i
+  /^(?:the\s+)?(?:button|link|element|menu item|item|icon|tab|field|option|checkbox|box|toggle|switch|cell|row|heading|image)\s+(?:labell?ed|that\s+(?:reads?|says?)|which\s+(?:reads?|says?)|with\s+(?:the\s+)?(?:text|label|name|caption|aria[\s-]?label|accessible\s+name)|named|titled|marked|reading|saying)\s+/i
 
 // Trailing element-type noun echoed after the real label ("Coupon Code input").
 const ELEMENT_NOUN =
@@ -90,6 +90,8 @@ export const stripFiller = (s: string): string => {
     .trim()
   // trailing "from the top/list/results" and "of the table/results" style filler
   t = t.replace(new RegExp(`\\s+(?:from|of)\\s+the\\s+(?:${POSITION_NOUNS})\\b.*$`, 'i'), '').trim()
+  // trailing decorative-control noun ("gear icon" -> "gear", "X symbol" -> "X")
+  t = t.replace(/\s+(?:icon|glyph|symbol)$/i, '').trim()
   return t || s.trim()
 }
 
@@ -120,6 +122,44 @@ export const cleanValue = (s: string): string => {
 
 /** Clean assertion text to look for: same rules as a label. */
 export const cleanText = (s: string): string => cleanLabel(s)
+
+// Common icon-only affordances -> a regex of likely accessible names.
+const ICON_AFFORDANCE: Array<[RegExp, string]> = [
+  [/\b(?:gear|cog|settings)\b/i, 'settings|gear'],
+  [/(?:\bhamburger\b|☰|\bnav(?:igation)?\s+menu\b)/i, 'menu|navigation'],
+  [/(?:\bkebab\b|three[\s-]?dot|meatball|⋮|…|\boverflow\b|\bmore\b)/i, 'more|options|menu'],
+  [/(?:magnifying\s*glass|🔍|\bsearch\b)/i, 'search'],
+  [/(?:\bpencil\b|✏|\bedit\b)/i, 'edit'],
+  [/(?:\bheart\b|❤|favou?rite|wishlist)/i, 'favorite|wishlist|like'],
+  [/(?:\bbell\b|🔔|notification)/i, 'notifications|alerts'],
+  [/(?:\btrash\b|🗑|\bbin\b|\bdelete\b)/i, 'delete|remove|trash'],
+  [/(?:\bavatar\b|\bprofile\b|\baccount\b|user\s+menu)/i, 'account|profile|user menu'],
+  [/(?:\bclose\b|✕|×|❌)/i, 'close|dismiss'],
+  [/(?:\bplus\b|➕|\badd\b)/i, 'add|new'],
+  [/(?:\bdownload\b|⬇)/i, 'download'],
+  [/(?:\bshare\b)/i, 'share'],
+  [/(?:\bfilter\b|funnel)/i, 'filter'],
+]
+
+/**
+ * If a target reads as an icon-only affordance ("the gear icon", "☰", "kebab
+ * menu"), return a regex (source) of likely accessible names; else null. Only
+ * fires when the phrase says icon/glyph/symbol or is a bare glyph, so plain text
+ * buttons are untouched.
+ */
+export const iconAffordance = (raw: string): string | null => {
+  const name = unquote(raw.trim())
+  const hasIconWord = /\b(?:icon|glyph|symbol)\b/i.test(name)
+  const isBareGlyph = /^[^\w\s]{1,3}$/.test(name)
+  // Phrases that are only ever an icon, never literal button text.
+  const distinctive =
+    /magnifying\s*glass|\bkebab\b|\bhamburger\b|\bmeatball\b|three[\s-]?dot|⋮|☰|overflow\s+menu/i.test(
+      name,
+    )
+  if (!hasIconWord && !isBareGlyph && !distinctive) return null
+  for (const [re, val] of ICON_AFFORDANCE) if (re.test(name)) return val
+  return null
+}
 
 /**
  * Heuristic: does this step describe an ASSERTION (a check on state) rather than

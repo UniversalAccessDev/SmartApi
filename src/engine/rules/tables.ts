@@ -45,16 +45,42 @@ export const rowActionRule: StepRule = {
   description: 'Acts within a table row: "click <action> in the row for/containing <identifier>"',
   apply(step) {
     const s = step.trim()
+    // Connector words that introduce a row identifier.
+    const REL =
+      '(?:for|of|containing|that\\s+contains|that\\s+has|which\\s+contains|with|where(?:\\s+\\w+\\s+is)?)'
+    // Card/tile scope: "click the Delete button on the card for Jane Doe".
+    const card =
+      /^(?:click|press|tap)\s+(?:on\s+)?(?:the\s+)?(.+?)\s+(?:in|on|for)\s+the\s+(?:card|tile|panel)\s+(?:for|of|titled|labell?ed|containing|with|that\s+contains)\s+(.+)$/i.exec(
+        s,
+      )
+    if (card) {
+      const id = unquote(card[2])
+      return {
+        lines: [
+          `await page.locator('[role="listitem"], .card', { hasText: ${lit(id)} }).first().${actionLocator(card[1])}.click()`,
+        ],
+        strategies: ['css', 'role'],
+        assumptions: [
+          `Scoped to the card/tile containing "${id}"; adjust the container selector to the app.`,
+        ],
+        confidence: 0.6,
+      }
+    }
+    // Proximity: "click Approve next to John Smith" -> row containing the id.
+    const proximity =
+      /^(?:click|press|tap|select|check)\s+(?:on\s+)?(?:the\s+)?(.+?)\s+(?:next\s+to|beside|alongside)\s+(.+)$/i.exec(
+        s,
+      )
     // Trailing-scope: "click Edit in the row for Jane Doe"
-    const trailing =
-      /^click\s+(?:on\s+)?(?:the\s+)?(.+?)\s+(?:in|on|for)\s+(?:the\s+)?row\s+(?:for|of|containing|with|where)\s+(.+)$/i.exec(
-        s,
-      )
+    const trailing = new RegExp(
+      `^click\\s+(?:on\\s+)?(?:the\\s+)?(.+?)\\s+(?:in|on|for)\\s+(?:the\\s+)?row\\s+${REL}\\s+(.+)$`,
+      'i',
+    ).exec(s)
     // Leading-scope: "in the row for Jane Doe, click Edit"
-    const leading =
-      /^(?:in|on|within|for)\s+(?:the\s+)?row\s+(?:for|of|containing|with|where)\s+(.+?)\s*,?\s+(?:click|press|tap|select|check)\s+(?:on\s+)?(?:the\s+)?(.+)$/i.exec(
-        s,
-      )
+    const leading = new RegExp(
+      `^(?:in|on|within|for)\\s+(?:the\\s+)?row\\s+${REL}\\s+(.+?)\\s*,?\\s+(?:click|press|tap|select|check)\\s+(?:on\\s+)?(?:the\\s+)?(.+)$`,
+      'i',
+    ).exec(s)
     // Possessive: "click Edit on Jane Doe's row"
     const possessive =
       /^click\s+(?:on\s+)?(?:the\s+)?(.+?)\s+(?:in|on|for)\s+(.+?)['’]s\s+row$/i.exec(s)
@@ -95,6 +121,9 @@ export const rowActionRule: StepRule = {
     } else if (possessive) {
       action = actionLocator(possessive[1])
       rowName = unquote(possessive[2])
+    } else if (proximity) {
+      action = actionLocator(proximity[1])
+      rowName = unquote(proximity[2])
     } else {
       return null
     }

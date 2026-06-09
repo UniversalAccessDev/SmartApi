@@ -13,6 +13,8 @@ export type By = 'text' | 'label' | 'css' | 'xpath' | 'id'
 export interface Target {
   by: By
   value: string
+  /** Index when the locator was scoped with .nth()/.first()/.last() (-1 = last). */
+  nth?: number
 }
 
 export type Action =
@@ -57,43 +59,84 @@ const argValue = (raw: string): string => {
  * getBy / locator call in the chain (the innermost element actually acted on,
  * e.g. the button inside a scoped row).
  */
+/**
+ * Turn a regex source used as an accessible name (e.g. "confirm|yes|ok",
+ * "add to (?:cart|basket|bag)", "check ?out") into a usable literal target by
+ * taking the first alternative and dropping regex syntax.
+ */
+const regexNameToLiteral = (src: string): string =>
+  src
+    .replace(/\(\?:([^)|]*)(?:\|[^)]*)?\)/g, '$1') // (?:a|b) -> a
+    .replace(/\\s[*+]?/g, ' ') // \s* -> space
+    .replace(/[?*+^$]/g, '') // drop quantifiers/anchors
+    .replace(/\\(.)/g, '$1') // unescape
+    .split('|')[0] // first top-level alternative
+    .replace(/\s+/g, ' ')
+    .trim()
+
+/** A single getBy / locator call discovered in a statement. */
+interface Call {
+  index: number
+  kind: string
+  role?: string
+  name?: string
+  arg?: string
+}
+
 const parseTarget = (stmt: string): Target | null => {
-  const getByRe = new RegExp(`getBy(Role|Text|Label|Placeholder|TestId|AltText)\\(([^)]*)\\)`, 'g')
-  let last: RegExpExecArray | null = null
+  const calls: Call[] = []
   let m: RegExpExecArray | null
-  while ((m = getByRe.exec(stmt)) !== null) last = m
 
-  if (last) {
-    const kind = last[1]
-    const inner = last[2]
-    switch (kind) {
-      case 'Text':
-      case 'AltText':
-        return { by: 'text', value: argValue(inner) }
-      case 'Label':
-      case 'Placeholder':
-        return { by: 'label', value: argValue(inner) }
-      case 'TestId':
-        return { by: 'css', value: `[data-testid="${argValue(inner)}"]` }
-      case 'Role': {
-        const nameM = new RegExp(`name:\\s*(${ARG})`).exec(inner)
-        if (nameM) return { by: 'text', value: argValue(nameM[1]) }
-        const roleM = /^\s*('([^']+)'|"([^"]+)")/.exec(inner)
-        const role = roleM ? (roleM[2] ?? roleM[3]) : 'generic'
-        return { by: 'css', value: `[role="${role}"]` }
+  // getByRole('role'[, { name: <regex|quoted>[, exact] }]) — regex-literal aware
+  // so names containing parens (e.g. /add to (?:cart)/i) are not truncated.
+  const roleRe =
+    /getByRole\(\s*['"](\w+)['"]\s*(?:,\s*\{\s*name:\s*(\/(?:[^/\\]|\\.)+\/[a-z]*|'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")\s*(?:,\s*exact:\s*\w+\s*)?\})?\s*\)/g
+  while ((m = roleRe.exec(stmt)) !== null)
+    calls.push({ index: m.index, kind: 'Role', role: m[1], name: m[2] })
+
+  const otherRe = new RegExp(`getBy(Text|Label|Placeholder|TestId|AltText)\\((${ARG})\\)`, 'g')
+  while ((m = otherRe.exec(stmt)) !== null) calls.push({ index: m.index, kind: m[1], arg: m[2] })
+
+  const locRe = new RegExp(`locator\\((${QUOTED})\\)`, 'g')
+  while ((m = locRe.exec(stmt)) !== null) calls.push({ index: m.index, kind: 'Locator', arg: m[1] })
+
+  if (!calls.length) return null
+  calls.sort((a, b) => a.index - b.index)
+  const last = calls[calls.length - 1]
+
+  // Trailing index modifier on the chain (.nth/.first/.last).
+  let nth: number | undefined
+  const nthM = /\.nth\((\d+)\)/.exec(stmt)
+  if (nthM) nth = parseInt(nthM[1], 10)
+  else if (/\.first\(\)/.test(stmt)) nth = 0
+  else if (/\.last\(\)/.test(stmt)) nth = -1
+  const withNth = (t: Target): Target => (nth !== undefined ? { ...t, nth } : t)
+
+  switch (last.kind) {
+    case 'Text':
+    case 'AltText':
+      return withNth({ by: 'text', value: argValue(last.arg!) })
+    case 'Label':
+    case 'Placeholder':
+      return withNth({ by: 'label', value: argValue(last.arg!) })
+    case 'TestId':
+      return withNth({ by: 'css', value: `[data-testid="${argValue(last.arg!)}"]` })
+    case 'Role': {
+      if (last.name) {
+        const isRegex = last.name.trim().startsWith('/')
+        const value = isRegex ? regexNameToLiteral(fromRegex(last.name)) : argValue(last.name)
+        return withNth({ by: 'text', value })
       }
+      return withNth({ by: 'css', value: `[role="${last.role}"]` })
     }
-  }
-
-  // page.locator('selector') / page.locator('xpath=...') / //...
-  const locM = new RegExp(`locator\\((${QUOTED})\\)`).exec(stmt)
-  if (locM) {
-    const sel = argValue(locM[1])
-    if (/^(?:xpath=|\/\/|\.\/\/|\()/.test(sel)) {
-      return { by: 'xpath', value: sel.replace(/^xpath=/, '') }
+    case 'Locator': {
+      const sel = argValue(last.arg!)
+      if (/^(?:xpath=|\/\/|\.\/\/|\()/.test(sel)) {
+        return withNth({ by: 'xpath', value: sel.replace(/^xpath=/, '') })
+      }
+      if (/^#[\w-]+$/.test(sel)) return withNth({ by: 'id', value: sel.slice(1) })
+      return withNth({ by: 'css', value: sel })
     }
-    if (/^#[\w-]+$/.test(sel)) return { by: 'id', value: sel.slice(1) }
-    return { by: 'css', value: sel }
   }
   return null
 }

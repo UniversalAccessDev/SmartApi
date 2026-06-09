@@ -1,9 +1,29 @@
 import { StepRule } from '../types'
 import { lit } from '../../utils/literal'
-import { cleanLabel, cleanValue, looksLikeAssertion } from '../text'
+import { cleanLabel, cleanValue, looksLikeAssertion, extractQuoted } from '../text'
 
 const labelAssumption = (field: string): string =>
   `Assumed the field "${field}" is reachable via getByLabel(); switch to getByPlaceholder() or getByRole() if it has no associated <label>.`
+
+const SELECT_CUE = /\s+(?:select|dropdown|drop-?down|combobox|combo\s*box|listbox|multi-?select)$/i
+
+/**
+ * If the field phrase ends in a <select> cue ("the Country dropdown"), route to
+ * selectOption() instead of a text fill. Returns null when there's no cue.
+ */
+const selectFromCue = (rawField: string, rawValue: string): ReturnType<StepRule['apply']> => {
+  if (!SELECT_CUE.test(rawField.trim())) return null
+  const field = cleanLabel(rawField.trim().replace(SELECT_CUE, ''))
+  const value = cleanValue(rawValue)
+  return {
+    lines: [`await page.getByLabel(${lit(field)}).selectOption(${lit(value)})`],
+    strategies: ['label'],
+    assumptions: [
+      `Assumed "${field}" is a <select>; for a custom dropdown, click the trigger then the option.`,
+    ],
+    confidence: 0.66,
+  }
+}
 
 const escapeRegex = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
@@ -13,6 +33,10 @@ const escapeRegex = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$
  * and anything past an " and "/", " clause boundary (a second field=value pair).
  */
 const cleanFillValue = (rawValue: string, field: string): string => {
+  // A quoted span is a literal value — keep it verbatim (commas/punctuation and all).
+  const quoted = extractQuoted(rawValue)
+  if (quoted != null) return quoted
+
   let v = cleanValue(rawValue)
   // trailing qualifier: "P@ss into the password field", "2025-12-25 in the Start Date picker"
   v = v
@@ -21,8 +45,8 @@ const cleanFillValue = (rawValue: string, field: string): string => {
       '',
     )
     .trim()
-  // second clause: "25 ... and 30 in the Weight field" -> keep first value
-  v = v.split(/\s+and\s+|\s*,\s+/i)[0].trim()
+  // NOTE: do NOT split on commas/"and" — that truncated real values like
+  // "123 Main St., Apt #4B, Springfield, IL". Multi-field steps are split upstream.
   // leading echoed field descriptor: field "password" -> value "the password P@ss" -> "P@ss"
   if (field) v = v.replace(new RegExp(`^the\\s+${escapeRegex(field)}\\s+`, 'i'), '').trim()
   return v || cleanValue(rawValue)
@@ -41,6 +65,8 @@ export const fillRule: StepRule = {
     'Fills a field: "enter <field> as <value>", "fill <field> with <value>", "set <field> to <value>", "type <value> in <field>"',
   apply(step) {
     const s = step.trim()
+    // "(move|set) ... slider to ..." is a slider action — let sliderRule handle it.
+    if (/\bslider\s+(?:to|all\s+the\s+way)\b/i.test(s)) return null
 
     // field-first phrasings: "enter <field> as <value>", "fill <field> with <value>", "set <field> to <value>"
     const fieldFirst =
@@ -48,6 +74,9 @@ export const fillRule: StepRule = {
       /^(?:fill(?:\s+in)?|set|update)\s+(.+?)\s+with\s+(.+)$/i.exec(s) ||
       /^(?:set|change|update)\s+(.+?)\s+to\s+(.+)$/i.exec(s)
     if (fieldFirst) {
+      // "set the Country select/dropdown to X" is a <select>, not a text fill.
+      const asSelect = selectFromCue(fieldFirst[1], fieldFirst[2])
+      if (asSelect) return asSelect
       const field = cleanLabel(fieldFirst[1])
       const value = cleanFillValue(fieldFirst[2], field)
       return {
@@ -80,6 +109,9 @@ export const fillRule: StepRule = {
         s,
       )
     if (valueFirst) {
+      // "type Medium in the Size dropdown" is a <select>, not a text fill.
+      const asSelect = selectFromCue(valueFirst[2], valueFirst[1])
+      if (asSelect) return asSelect
       const field = cleanLabel(valueFirst[2].split(/\s+and\s+/i)[0])
       // "put/type X in the cart/basket" is an ecommerce action, not a fill.
       if (/^(?:cart|basket|bag|wishlist|favou?rites)$/i.test(field)) return null
@@ -141,6 +173,8 @@ export const checkRule: StepRule = {
   apply(step) {
     // "Check that the total is $5" is an assertion, not a checkbox action.
     if (looksLikeAssertion(step)) return null
+    // "Check out" / "Checkout" is the ecommerce flow, not a checkbox.
+    if (/^check\s?out\b/i.test(step.trim())) return null
     const match =
       /^(?:check|tick|enable)\s+(?:the\s+)?(.+?)(?:\s+(?:checkbox|toggle|option))?$/i.exec(
         step.trim(),
@@ -250,6 +284,24 @@ export const clearFieldRule: StepRule = {
   description: 'Clears an input: "clear the <field> field", "empty <field>"',
   apply(step) {
     if (looksLikeAssertion(step)) return null
+    // "Clear the Email field and type new@test.com" -> clear then fill (one step, two ops).
+    const clearType =
+      /^(?:clear|empty)\s+(?:the\s+)?(.+?)(?:\s+(?:field|input|box))?\s+and\s+(?:type|enter|input|fill\s+in|put)\s+(.+)$/i.exec(
+        step.trim(),
+      )
+    if (clearType) {
+      const field = cleanLabel(clearType[1])
+      const value = cleanFillValue(clearType[2], field)
+      return {
+        lines: [
+          `await page.getByLabel(${lit(field)}).clear()`,
+          `await page.getByLabel(${lit(field)}).fill(${lit(value)})`,
+        ],
+        strategies: ['label'],
+        assumptions: [`Assumed "${field}" is an input reachable via getByLabel().`],
+        confidence: 0.72,
+      }
+    }
     const match = /^(?:clear|empty)\s+(?:the\s+)?(.+?)(?:\s+(?:field|input|box))?$/i.exec(
       step.trim(),
     )

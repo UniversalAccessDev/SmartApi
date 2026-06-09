@@ -16,6 +16,7 @@ const fs = require('fs')
 const path = require('path')
 
 const { runRulesEngine } = require(path.join(__dirname, '..', 'dist', 'engine', 'rulesEngine'))
+const { toActions } = require(path.join(__dirname, '..', 'dist', 'engine', 'actions'))
 
 const ctx = { closeOverlaysWithEscape: false }
 
@@ -39,6 +40,7 @@ const main = () => {
       rule: a.rule,
       confidence: a.confidence,
       code: r.bodyLines.join('\n'),
+      actions: toActions(r.bodyLines),
       warnings: r.warnings,
     }
   })

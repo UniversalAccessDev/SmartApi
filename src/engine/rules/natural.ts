@@ -53,6 +53,28 @@ export const conditionalRule: StepRule = {
   },
 }
 
+/** "Check all the checkboxes", "turn off every toggle", "uncheck all boxes". */
+export const allCheckboxesRule: StepRule = {
+  name: 'check-all',
+  description: 'Checks/unchecks every checkbox or toggle: "check all the checkboxes"',
+  apply(step) {
+    const m =
+      /^(?:check|tick|select|enable|uncheck|untick|deselect|clear|disable|turn\s+off|turn\s+on)\s+(?:all|every|each)\s+(?:of\s+)?(?:the\s+)?(check\s*box(?:es)?|box(?:es)?|toggle(?:s)?|switch(?:es)?)$/i.exec(
+        step.trim(),
+      )
+    if (!m) return null
+    const uncheck = /^(?:uncheck|untick|deselect|clear|disable|turn\s+off)/i.test(step.trim())
+    const role = /toggle|switch/i.test(m[1]) ? 'switch' : 'checkbox'
+    const method = uncheck ? 'uncheck' : 'check'
+    return {
+      lines: [`for (const el of await page.getByRole('${role}').all()) await el.${method}()`],
+      strategies: ['role'],
+      assumptions: [`Looped ${method}() over every ${role} on the page.`],
+      confidence: 0.55,
+    }
+  },
+}
+
 /** "Confirm the deletion", "Cancel", "Click Yes". */
 export const confirmCancelRule: StepRule = {
   name: 'confirm-cancel',
@@ -761,7 +783,7 @@ export const sliderRule: StepRule = {
 
     // Directional: "drag the brightness slider all the way to the right"
     const dir =
-      /^(?:move|set|drag|slide|adjust|push)\s+(?:the\s+)?(.+?)\s+slider\s+(?:all\s+the\s+way\s+)?to\s+(?:the\s+)?(right|max(?:imum)?|end|top|left|min(?:imum)?|start|beginning|bottom)$/i.exec(
+      /^(?:move|set|drag|slide|adjust|push)\s+(?:the\s+)?(.*?)\s*slider\s+(?:all\s+the\s+way\s+)?to\s+(?:the\s+)?(right|max(?:imum)?|end|top|left|min(?:imum)?|start|beginning|bottom)$/i.exec(
         s,
       )
     if (dir) {
@@ -1016,16 +1038,17 @@ export const waitSecondsRule: StepRule = {
   description: 'Explicit fixed wait: "wait 2 seconds" -> page.waitForTimeout(2000)',
   apply(step) {
     const m =
-      /^wait\s+(?:for\s+)?(\d+)\s*(milliseconds?|ms|minutes?|mins?|seconds?|secs?|m|s)$/i.exec(
+      /^(?:wait|pause|sleep|hold\s+on)\s+(?:for\s+)?(?:~|about\s+|approx(?:imately)?\s+)?(\d+(?:\.\d+)?)\s*(milliseconds?|ms|minutes?|mins?|seconds?|secs?|m|s)\b/i.exec(
         step.trim(),
       )
     if (!m) return null
-    const n = parseInt(m[1], 10)
+    const n = parseFloat(m[1])
     const unit = m[2].toLowerCase()
     let ms: number
     if (unit === 'ms' || unit.startsWith('millisecond')) ms = n
     else if (unit === 'm' || unit.startsWith('min')) ms = n * 60_000
     else ms = n * 1000 // seconds / secs / s
+    ms = Math.round(ms)
     return {
       lines: [`await page.waitForTimeout(${ms})`],
       strategies: [],
