@@ -21,6 +21,61 @@ const round2 = (n: number): number => Math.round(n * 100) / 100
  * Run every step through the ordered rule registry and aggregate the results
  * into Playwright statements plus metadata (confidence, assumptions, warnings).
  */
+/**
+ * Normalize a raw step before any rule sees it: strip list/Gherkin/sequencer
+ * prefixes and trailing sentence punctuation. This unblocks whole classes of
+ * otherwise-unmapped steps ("1. Click Login", "Then the page loads", "Click OK.")
+ * without each rule needing to special-case the noise.
+ */
+const normalizeStep = (step: string): string => {
+  let s = step.trim()
+  // Leading list markers: "1.", "2)", "- ", "* "
+  s = s.replace(/^\s*(?:\d+[.)]|[-*•])\s+/, '')
+  // "Step 3:" / "Step 3 -" prefixes
+  s = s.replace(/^step\s+\d+\s*[:.)-]?\s+/i, '')
+  // Gherkin keywords + optional subject ("Given the user ", "When I ", "Then ")
+  s = s.replace(
+    /^(?:given|when|then|and|but)\s+(?:i\s+|the\s+user\s+(?:is\s+|has\s+)?|you\s+)?/i,
+    '',
+  )
+  // Sequencer adverbs ("First,", "Next,", "Finally,", "After that,")
+  s = s.replace(
+    /^(?:first|next|then|finally|afterwards?|after\s+that|now|lastly|secondly|thirdly)\s*,?\s+/i,
+    '',
+  )
+  // Trailing sentence punctuation / emphasis (keep a single ? for questions? no — assertions don't need it)
+  s = s.replace(/[.!]+$/, '').trim()
+  return s || step.trim()
+}
+
+/** Does this step map to any rule (or the org KB)? */
+const mapsToRule = (step: string, ctx: StepContext): boolean =>
+  ctx.resolveFromKb?.(step) != null || RULES.some((r) => r.apply(step, ctx) !== null)
+
+/**
+ * Split a compound step ("Enter Name as Jane and click Submit") into its action
+ * segments — but ONLY when every segment independently maps. This avoids
+ * splitting legitimate phrases like "Terms and Conditions" or a button literally
+ * named "Save and Continue" (whose halves don't both map to actions).
+ */
+const expandStep = (step: string, ctx: StepContext): string[] => {
+  // Connectors: "and then" / "then" / "and", an optional leading comma, plus
+  // "&"/"+" and a sentence boundary (". Then" / ". ").
+  const CONNECTOR = /\s*,?\s+(?:and\s+then|then|and)\s+|\s*&{1,2}\s*|\s+\+\s+|\.\s+(?=[A-Z])/
+  if (!CONNECTOR.test(step)) return [step]
+  const segments = step
+    .split(CONNECTOR)
+    .map((s) =>
+      s
+        .trim()
+        .replace(/[.,]+$/, '')
+        .trim(),
+    )
+    .filter(Boolean)
+  if (segments.length < 2) return [step]
+  return segments.every((seg) => mapsToRule(seg, ctx)) ? segments : [step]
+}
+
 export const runRulesEngine = (steps: string[], ctx: StepContext): EngineResult => {
   const bodyLines: string[] = []
   const strategies = new Set<LocatorStrategy>()
@@ -30,7 +85,11 @@ export const runRulesEngine = (steps: string[], ctx: StepContext): EngineResult 
   const unmatchedSteps: string[] = []
   const confidences: number[] = []
 
-  for (const step of steps) {
+  // Normalize (strip list/Gherkin/sequencer noise) then expand compound
+  // "X and Y" steps into individual actions.
+  const expandedSteps = steps.flatMap((s) => expandStep(normalizeStep(s), ctx))
+
+  for (const step of expandedSteps) {
     // KB-first: an org's learned/taught locators take precedence over generic rules.
     let matched: { name: string; output: RuleOutput } | null = null
     const kbOutput = ctx.resolveFromKb?.(step)

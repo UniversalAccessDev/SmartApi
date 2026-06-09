@@ -97,5 +97,5 @@ export const CORPUS: CorpusEntry[] = [
   { step: 'Open a new tab', mappable: false },
   { step: 'Maximize the window', mappable: false },
   { step: 'Zoom in', mappable: false },
-  { step: 'Copy the link', mappable: false },
+  { step: 'Copy the link', mappable: true }, // clipboard shortcut -> Control+c
 ]

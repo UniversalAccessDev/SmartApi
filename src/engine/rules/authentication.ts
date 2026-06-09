@@ -30,7 +30,10 @@ export const authLoginRule: StepRule = {
   description:
     'Combined login: "login/sign in with <Email|Username> [as] <value> and <Password> [as] <value>"',
   apply(step) {
-    const lead = /^(log\s?in|sign\s?in)\s+with\s+(.+)$/i.exec(step.trim())
+    const lead =
+      /^(log\s?in|sign\s?in)(?:\s+to\s+[\w\s'-]+?)?\s+(?:with|using|via)\s+(?:the\s+)?(?:credentials?\s+)?(.+)$/i.exec(
+        step.trim(),
+      )
     if (!lead) return null
 
     // Use the user's verb as the submit-button label: "sign in" -> "Sign in".

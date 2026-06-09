@@ -31,14 +31,14 @@ describe('assertion extras', () => {
   it('hidden / not visible', () => {
     const { line, rule } = run('Verify the error message is not visible')
     expect(rule).toBe('assert-hidden')
-    expect(line).toBe("await expect(page.getByText('the error message')).toBeHidden()")
+    expect(line).toBe("await expect(page.getByText('error message')).toBeHidden()")
   })
   it('disappears', () => {
     expect(run('Verify the spinner disappears').rule).toBe('assert-hidden')
   })
   it('should disappear', () => {
     expect(run('The loading spinner should disappear').line).toBe(
-      "await expect(page.getByText('The loading spinner')).toBeHidden()",
+      "await expect(page.getByText('loading spinner')).toBeHidden()",
     )
   })
   it('disabled (button -> role)', () => {
@@ -49,7 +49,7 @@ describe('assertion extras', () => {
   it('enabled (field -> label)', () => {
     const { line, rule } = run('Verify the Email field is enabled')
     expect(rule).toBe('assert-enabled')
-    expect(line).toBe("await expect(page.getByLabel('Email field')).toBeEnabled()")
+    expect(line).toBe("await expect(page.getByLabel('Email')).toBeEnabled()")
   })
   it('checked', () => {
     const { line, rule } = run('Verify Remember me is checked')

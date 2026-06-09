@@ -40,7 +40,7 @@ describe('locator strategies', () => {
     )
   })
   it('click last', () => {
-    expect(run('Click the last item').line).toBe("await page.getByText('item').last().click()")
+    expect(run('Click the last item').line).toBe("await page.getByRole('listitem').last().click()")
   })
   it('click image', () => {
     const { line, rule } = run('Click the company logo image')

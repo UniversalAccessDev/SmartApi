@@ -1,16 +1,51 @@
 import { StepRule } from '../types'
 import { lit } from '../../utils/literal'
 import { slugify } from '../../utils/slug'
+import { unquote, extractQuoted, stripFiller } from '../text'
+
+// Bare role nouns → ARIA role (for "click the first <noun>" / nth selection).
+const ROLE_NOUNS: Record<string, string> = {
+  tab: 'tab',
+  tabs: 'tab',
+  row: 'row',
+  rows: 'row',
+  item: 'listitem',
+  items: 'listitem',
+  option: 'option',
+  options: 'option',
+  cell: 'cell',
+  cells: 'cell',
+  link: 'link',
+  links: 'link',
+  button: 'button',
+  buttons: 'button',
+  checkbox: 'checkbox',
+  checkboxes: 'checkbox',
+  heading: 'heading',
+  headings: 'heading',
+  image: 'img',
+  images: 'img',
+}
 
 const KEY_MAP: Record<string, string> = {
   enter: 'Enter',
+  return: 'Enter',
   escape: 'Escape',
   esc: 'Escape',
   tab: 'Tab',
   space: 'Space',
   spacebar: 'Space',
+  'space bar': 'Space',
   backspace: 'Backspace',
   delete: 'Delete',
+  del: 'Delete',
+  insert: 'Insert',
+  home: 'Home',
+  end: 'End',
+  pageup: 'PageUp',
+  'page up': 'PageUp',
+  pagedown: 'PageDown',
+  'page down': 'PageDown',
   up: 'ArrowUp',
   down: 'ArrowDown',
   left: 'ArrowLeft',
@@ -19,6 +54,22 @@ const KEY_MAP: Record<string, string> = {
   'arrow down': 'ArrowDown',
   'arrow left': 'ArrowLeft',
   'arrow right': 'ArrowRight',
+  'up arrow': 'ArrowUp',
+  'down arrow': 'ArrowDown',
+  'left arrow': 'ArrowLeft',
+  'right arrow': 'ArrowRight',
+  f1: 'F1',
+  f2: 'F2',
+  f3: 'F3',
+  f4: 'F4',
+  f5: 'F5',
+  f6: 'F6',
+  f7: 'F7',
+  f8: 'F8',
+  f9: 'F9',
+  f10: 'F10',
+  f11: 'F11',
+  f12: 'F12',
 }
 
 /**
@@ -30,10 +81,19 @@ export const pressKeyRule: StepRule = {
   name: 'press-key',
   description: 'Presses a keyboard key: "press Enter", "press Escape", "press the Tab key"',
   apply(step) {
-    const match = /^press\s+(?:the\s+)?(.+?)(?:\s+key)?$/i.exec(step.trim())
+    const match = /^(?:press|hit|tap|type|push)\s+(?:the\s+)?(.+?)(?:\s+key)?$/i.exec(step.trim())
     if (!match) return null
 
-    const raw = match[1].trim().toLowerCase()
+    let raw = match[1].trim().toLowerCase()
+    // Drop trailing prose so "Cmd+C to copy the text" / "F5 key to refresh" keep
+    // only the key token, and "Enter twice" ignores the repeat count.
+    raw = raw
+      .replace(/\s+key\b.*$/, '')
+      .replace(/\s+(?:to|in order to|so that|which|and then|then|on)\b.*$/, '')
+      .replace(/\s+(?:once|twice|\d+\s+times|x\s*\d+)\b.*$/, '')
+      .replace(/\s+(?:together|simultaneously|at once)\b.*$/, '')
+      .replace(/\b(ctrl|control|cmd|command|meta|win|shift|alt|option)\s+and\s+/g, '$1+')
+      .trim()
 
     // Modifier combos: "ctrl+a", "cmd+shift+p" -> "Control+A", "Meta+Shift+P".
     if (raw.includes('+')) {
@@ -79,20 +139,56 @@ export const pressKeyRule: StepRule = {
   },
 }
 
+/**
+ * Clipboard & select-all shortcuts: "copy the text", "paste", "select all",
+ * "cut the selection" -> keyboard.press(Control+c/v/x/a). Registered before
+ * clickRule so these never become a button click.
+ */
+export const clipboardRule: StepRule = {
+  name: 'clipboard',
+  description: 'Clipboard/select-all shortcuts: "copy", "paste", "cut", "select all"',
+  apply(step) {
+    const s = step.trim()
+    if (/^(?:select|highlight)\s+(?:all|everything)(?:\s+(?:the\s+)?text)?$/i.test(s)) {
+      return mod('a', 'Selected all with Control+a.')
+    }
+    if (
+      /^copy\b(?:\s+(?:the\s+)?(?:selected\s+)?(?:text|selection|highlighted\s+text|link|url))?$/i.test(
+        s,
+      )
+    ) {
+      return mod('c', 'Copied with Control+c.')
+    }
+    if (/^cut\b(?:\s+(?:the\s+)?(?:selected\s+)?(?:text|selection))?$/i.test(s)) {
+      return mod('x', 'Cut with Control+x.')
+    }
+    if (/^paste\b(?:\s+(?:it|the\s+(?:text|value|clipboard)))?(?:\s+(?:in|into)\b.*)?$/i.test(s)) {
+      return mod('v', 'Pasted with Control+v.')
+    }
+    return null
+  },
+}
+
+const mod = (key: string, note: string): ReturnType<StepRule['apply']> => ({
+  lines: [`await page.keyboard.press('Control+${key}')`],
+  strategies: ['keyboard'],
+  assumptions: [`${note} Use 'Meta+${key}' on macOS-specific runs.`],
+  confidence: 0.7,
+})
+
 /** Hover over an element: "hover over the Profile menu". */
 export const hoverRule: StepRule = {
   name: 'hover',
   description: 'Hovers over an element: "hover over <name>", "hover on <name>"',
   apply(step) {
-    const match = /^hover\s+(?:over|on)?\s*(?:the\s+)?(.+)$/i.exec(step.trim())
+    const match = /^hover\s+(?:over|on)?\s*(.+)$/i.exec(step.trim())
     if (!match) return null
 
-    const name = match[1].trim()
     return {
-      lines: [`await page.getByText(${lit(name)}).hover()`],
+      lines: [`await ${targetLocator(match[1])}.hover()`],
       strategies: ['text'],
-      assumptions: [`Assumed "${name}" is locatable via getByText() for hovering.`],
-      confidence: 0.6,
+      assumptions: ['Resolved the hover target via role/text; adjust if ambiguous.'],
+      confidence: 0.62,
     }
   },
 }
@@ -132,15 +228,40 @@ export const closeOverlayRule: StepRule = {
   },
 }
 
+// A trailing role noun, tolerant of an optional qualifier ("nav link", "menu
+// item", "primary button") so mid-prose role words still resolve.
 const ROLE_SUFFIXES: Array<[RegExp, string]> = [
-  [/\s+button$/i, 'button'],
-  [/\s+link$/i, 'link'],
+  [/\s+(?:nav(?:igation)?\s+|primary\s+|secondary\s+|submit\s+)?button$/i, 'button'],
+  [/\s+(?:nav(?:igation)?\s+|menu\s+)?link$/i, 'link'],
   [/\s+tab$/i, 'tab'],
   [/\s+checkbox$/i, 'checkbox'],
   [/\s+radio(?:\s+button)?$/i, 'radio'],
-  [/\s+(?:menu item|menuitem)$/i, 'menuitem'],
+  [/\s+(?:menu\s?item|menuitem|submenu(?:\s+item)?)$/i, 'menuitem'],
   [/\s+option$/i, 'option'],
 ]
+
+/**
+ * Resolve a target phrase into a role + clean name:
+ *  1. peel a trailing role suffix ("... button") to learn the role;
+ *  2. if the remainder quotes the target, that quoted span IS the name;
+ *  3. otherwise strip surrounding filler/preamble/article.
+ * Shared by clickRule and targetLocator so every click path cleans identically.
+ */
+const roleAndName = (raw: string): { role: string | null; name: string; quoted: boolean } => {
+  let s = raw.trim()
+  let role: string | null = null
+  for (const [suffix, r] of ROLE_SUFFIXES) {
+    if (suffix.test(s)) {
+      s = s.replace(suffix, '').trim()
+      role = r
+      break
+    }
+  }
+  const q = extractQuoted(s)
+  let name = q != null ? q : stripFiller(unquote(s))
+  name = name.replace(/^(?:the|a|an)\s+/i, '').trim()
+  return { role, name, quoted: q != null }
+}
 
 /**
  * Generic click — the fallback action rule. Infers an ARIA role from a
@@ -150,21 +271,12 @@ export const clickRule: StepRule = {
   name: 'click',
   description: 'Clicks an element: "click <name>", "tap <name>", "click the <name> link/tab"',
   apply(step) {
-    const match = /^(?:click|tap|hit|press)\s+(?:on\s+)?(?:the\s+)?(.+?)\s*$/i.exec(step.trim())
+    const match = /^(?:click|tap|hit|press)\s+(?:on\s+)?(.+?)\s*$/i.exec(step.trim())
     if (!match) return null
 
-    let name = match[1].trim().replace(/^["']|["']$/g, '')
-    let role = 'button'
-    let explicit = false
-
-    for (const [suffix, mappedRole] of ROLE_SUFFIXES) {
-      if (suffix.test(name)) {
-        name = name.replace(suffix, '').trim()
-        role = mappedRole
-        explicit = true
-        break
-      }
-    }
+    const { role: detected, name } = roleAndName(match[1])
+    const role = detected ?? 'button'
+    const explicit = detected !== null
 
     return {
       lines: [`await page.getByRole(${lit(role)}, { name: ${lit(name)} }).click()`],
@@ -181,12 +293,12 @@ export const clickRule: StepRule = {
 
 /** Resolve a click-target phrase to a locator, inferring a role from a suffix. */
 const targetLocator = (raw: string): string => {
-  let name = raw.trim().replace(/^["']|["']$/g, '')
-  for (const [suffix, role] of ROLE_SUFFIXES) {
-    if (suffix.test(name)) {
-      name = name.replace(suffix, '').trim()
-      return `page.getByRole('${role}', { name: ${lit(name)} })`
-    }
+  const { role, name, quoted } = roleAndName(raw)
+  if (role) return `page.getByRole('${role}', { name: ${lit(name)} })`
+  // Bare role noun ("row", "tab", "items") → role-only locator (used with .nth()).
+  if (!quoted) {
+    const roleNoun = ROLE_NOUNS[name.toLowerCase()]
+    if (roleNoun) return `page.getByRole('${roleNoun}')`
   }
   return `page.getByText(${lit(name)})`
 }
@@ -232,14 +344,16 @@ export const searchRule: StepRule = {
   name: 'search',
   description: 'Searches: "search for <query>" — fills the search box and presses Enter',
   apply(step) {
-    // Only strip a trailing "in/using the search bar/box" — never a query that
-    // happens to contain "in" (e.g. "Indian food in Los Angeles").
+    const s = step.trim()
+    const tail = '(?:\\s+(?:in|using)\\s+(?:the\\s+)?search\\s+(?:bar|box|field|input))?$'
+    // Prefer the text AFTER "for" ("search the catalog for laptops" -> "laptops").
+    // Fall back to everything after "search". Only strip a trailing "in the search
+    // bar" — never a query that legitimately contains "in" ("food in LA").
     const match =
-      /^search\s+(?:for\s+)?(.+?)(?:\s+(?:in|using)\s+(?:the\s+)?search\s+(?:bar|box|field|input))?$/i.exec(
-        step.trim(),
-      )
+      new RegExp('^search\\s+.*?\\bfor\\s+(.+?)' + tail, 'i').exec(s) ||
+      new RegExp('^search\\s+(.+?)' + tail, 'i').exec(s)
     if (!match) return null
-    const query = match[1].trim()
+    const query = unquote(match[1].trim())
     return {
       lines: [
         `await page.getByRole('searchbox').fill(${lit(query)})`,
@@ -355,6 +469,16 @@ const ORDINALS: Record<string, number> = {
   '4th': 3,
   fifth: 4,
   '5th': 4,
+  sixth: 5,
+  '6th': 5,
+  seventh: 6,
+  '7th': 6,
+  eighth: 7,
+  '8th': 7,
+  ninth: 8,
+  '9th': 8,
+  tenth: 9,
+  '10th': 9,
 }
 
 /** Click the Nth match: "click the first result", "click the 3rd Add to Cart button". */
@@ -363,7 +487,7 @@ export const nthClickRule: StepRule = {
   description: 'Clicks the Nth match: "click the first/second/last <target>"',
   apply(step) {
     const match =
-      /^click\s+(?:on\s+)?the\s+(first|second|third|fourth|fifth|last|\d+(?:st|nd|rd|th)|1st|2nd|3rd)\s+(.+)$/i.exec(
+      /^click\s+(?:on\s+)?the\s+(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|last|\d+(?:st|nd|rd|th))\s+(.+)$/i.exec(
         step.trim(),
       )
     if (!match) return null
@@ -416,14 +540,10 @@ export const dragRule: StepRule = {
         step.trim(),
       )
     if (!match) return null
-    const source = match[1].trim()
-    const target = match[2].trim()
     return {
-      lines: [`await page.getByText(${lit(source)}).dragTo(page.getByText(${lit(target)}))`],
+      lines: [`await ${targetLocator(match[1])}.dragTo(${targetLocator(match[2])})`],
       strategies: ['text'],
-      assumptions: [
-        `Dragged "${source}" onto "${target}" via getByText(); adjust the locators if they are specific roles.`,
-      ],
+      assumptions: ['Resolved drag source/target via role/text; adjust if ambiguous.'],
       confidence: 0.6,
     }
   },

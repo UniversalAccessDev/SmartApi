@@ -1,10 +1,27 @@
 import { StepRule } from '../types'
 import { lit } from '../../utils/literal'
+import { unquote } from '../text'
 
 const ACTION_ROLE: Array<[RegExp, string]> = [
   [/\s+button$/i, 'button'],
   [/\s+link$/i, 'link'],
+  [/\s+(?:checkbox|tickbox)$/i, 'checkbox'],
+  [/\s+icon$/i, 'button'],
 ]
+
+// Word/numeric ordinal -> zero-based index for "the Nth row" phrasings.
+const ORDINAL_INDEX: Record<string, number> = {
+  first: 0,
+  second: 1,
+  third: 2,
+  fourth: 3,
+  fifth: 4,
+  sixth: 5,
+  seventh: 6,
+  eighth: 7,
+  ninth: 8,
+  tenth: 9,
+}
 
 /** Resolve a row-action phrase ("Edit button", "Delete") to a scoped locator. */
 const actionLocator = (raw: string): string => {
@@ -27,13 +44,60 @@ export const rowActionRule: StepRule = {
   name: 'row-action',
   description: 'Acts within a table row: "click <action> in the row for/containing <identifier>"',
   apply(step) {
-    const match =
-      /^click\s+(?:on\s+)?(?:the\s+)?(.+?)\s+(?:in|on|for)\s+the\s+row\s+(?:for|of|containing|with)\s+(.+)$/i.exec(
-        step.trim(),
+    const s = step.trim()
+    // Trailing-scope: "click Edit in the row for Jane Doe"
+    const trailing =
+      /^click\s+(?:on\s+)?(?:the\s+)?(.+?)\s+(?:in|on|for)\s+(?:the\s+)?row\s+(?:for|of|containing|with|where)\s+(.+)$/i.exec(
+        s,
       )
-    if (!match) return null
-    const action = actionLocator(match[1])
-    const rowName = match[2].trim()
+    // Leading-scope: "in the row for Jane Doe, click Edit"
+    const leading =
+      /^(?:in|on|within|for)\s+(?:the\s+)?row\s+(?:for|of|containing|with|where)\s+(.+?)\s*,?\s+(?:click|press|tap|select|check)\s+(?:on\s+)?(?:the\s+)?(.+)$/i.exec(
+        s,
+      )
+    // Possessive: "click Edit on Jane Doe's row"
+    const possessive =
+      /^click\s+(?:on\s+)?(?:the\s+)?(.+?)\s+(?:in|on|for)\s+(.+?)['’]s\s+row$/i.exec(s)
+    // Ordinal-scope: "click Edit in the second row", "press Delete in the 3rd row"
+    const ordinalScope =
+      /^(?:click|press|tap|select|check)\s+(?:on\s+)?(?:the\s+)?(.+?)\s+(?:in|on)\s+the\s+(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|last|\d+(?:st|nd|rd|th))\s+row(?:\s+of\s+the\s+table)?$/i.exec(
+        s,
+      )
+    // User/order scope: "for the user alice@test.com, press Deactivate"
+    const entityScope =
+      /^(?:for|in)\s+(?:the\s+)?(?:user|order|customer|account|item|product)\s+(.+?)\s*,?\s+(?:click|press|tap|select|check)\s+(?:on\s+)?(?:the\s+)?(.+)$/i.exec(
+        s,
+      )
+
+    let action: string
+    let rowName: string
+    if (ordinalScope) {
+      const ord = ordinalScope[2].toLowerCase()
+      const idx =
+        ord === 'last'
+          ? '.last()'
+          : `.nth(${ORDINAL_INDEX[ord] ?? Math.max(0, parseInt(ord, 10) - 1)})`
+      return {
+        lines: [`await page.getByRole('row')${idx}.${actionLocator(ordinalScope[1])}.click()`],
+        strategies: ['role'],
+        assumptions: [`Scoped to the "${ord}" table row.`],
+        confidence: 0.68,
+      }
+    } else if (entityScope) {
+      action = actionLocator(entityScope[2])
+      rowName = unquote(entityScope[1])
+    } else if (trailing) {
+      action = actionLocator(trailing[1])
+      rowName = unquote(trailing[2])
+    } else if (leading) {
+      rowName = unquote(leading[1])
+      action = actionLocator(leading[2])
+    } else if (possessive) {
+      action = actionLocator(possessive[1])
+      rowName = unquote(possessive[2])
+    } else {
+      return null
+    }
     return {
       lines: [`await page.getByRole('row', { name: ${lit(rowName)} }).${action}.click()`],
       strategies: ['role'],
@@ -54,13 +118,34 @@ export const rowContainsRule: StepRule = {
   name: 'row-contains',
   description: 'Asserts a row contains text: "verify the row for <identifier> contains <text>"',
   apply(step) {
-    const match =
-      /^(?:verify|assert|ensure|confirm|check)\s+(?:that\s+)?the\s+row\s+(?:for|of|containing|with)\s+(.+?)\s+(?:contains|shows|displays|has|should\s+(?:contain|show))\s+(?:the\s+)?(?:text\s+)?(.+)$/i.exec(
-        step.trim(),
-      )
+    const s = step.trim()
+    const VERB = '(?:contains?|shows?|displays?|has|should\\s+(?:contain|show))'
+    const match = new RegExp(
+      `^(?:verify|assert|ensure|confirm|check|make sure)\\s+(?:that\\s+)?the\\s+row\\s+(?:for|of|containing|with)\\s+(.+?)\\s+${VERB}\\s+(?:the\\s+)?(?:text\\s+)?(.+)$`,
+      'i',
+    ).exec(s)
+    // Ordinal row: "verify the 3rd row contains Pending"
+    const ordinal = new RegExp(
+      `^(?:verify|assert|ensure|confirm|check|make sure)\\s+(?:that\\s+)?the\\s+(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|last|\\d+(?:st|nd|rd|th))\\s+row\\s+${VERB}\\s+(?:the\\s+)?(?:text\\s+)?(.+)$`,
+      'i',
+    ).exec(s)
+    if (ordinal) {
+      const ord = ordinal[1].toLowerCase()
+      const text = unquote(ordinal[2])
+      const idx =
+        ord === 'last'
+          ? '.last()'
+          : `.nth(${ORDINAL_INDEX[ord] ?? Math.max(0, parseInt(ord, 10) - 1)})`
+      return {
+        lines: [`await expect(page.getByRole('row')${idx}).toContainText(${lit(text)})`],
+        strategies: ['role'],
+        assumptions: [`Scoped the assertion to the "${ord}" table row.`],
+        confidence: 0.66,
+      }
+    }
     if (!match) return null
-    const rowName = match[1].trim()
-    const text = match[2].trim()
+    const rowName = unquote(match[1])
+    const text = unquote(match[2])
     return {
       lines: [
         `await expect(page.getByRole('row', { name: ${lit(rowName)} })).toContainText(${lit(text)})`,

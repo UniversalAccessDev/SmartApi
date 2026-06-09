@@ -34,7 +34,7 @@ describe('natural-language rules', () => {
     [
       'place-order',
       'Place the order',
-      "await page.getByRole('button', { name: /place order/i }).click()",
+      "await page.getByRole('button', { name: /place order|submit order|complete (?:order|purchase)|buy now/i }).click()",
     ],
     [
       'accept-cookies',
@@ -84,7 +84,11 @@ describe('natural-language rules', () => {
     ],
     ['page-should-load', 'The page should load', "await page.waitForLoadState('networkidle')"],
     ['wait-seconds', 'Wait 3 seconds', "await page.waitForLoadState('networkidle')"],
-    ['switch-toggle', 'Switch on notifications', "await page.getByLabel('notifications').check()"],
+    [
+      'switch-toggle',
+      'Switch on notifications',
+      "await page.getByRole('switch', { name: 'notifications' }).check()",
+    ],
   ]
 
   for (const [rule, step, expected] of cases) {
@@ -99,8 +103,8 @@ describe('natural-language rules', () => {
     const { lines, rule } = run('Apply the discount code SAVE10')
     expect(rule).toBe('coupon')
     expect(lines).toEqual([
-      "await page.getByLabel(/coupon|promo|discount|voucher/i).fill('SAVE10')",
-      "await page.getByRole('button', { name: /apply/i }).click()",
+      "await page.getByLabel(/coupon|promo|discount|voucher|gift\\s*card/i).fill('SAVE10')",
+      "await page.getByRole('button', { name: /apply|redeem/i }).click()",
     ])
   })
 

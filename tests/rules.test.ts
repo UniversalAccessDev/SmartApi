@@ -137,7 +137,7 @@ describe('assertion rules', () => {
 
   it('asserts visibility from "X should be visible"', () => {
     expect(run('The welcome banner should be visible').line).toBe(
-      "await expect(page.getByText('The welcome banner')).toBeVisible()",
+      "await expect(page.getByText('welcome banner')).toBeVisible()",
     )
   })
 

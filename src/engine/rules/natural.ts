@@ -1,5 +1,95 @@
 import { StepRule } from '../types'
 import { lit } from '../../utils/literal'
+import { cleanLabel, cleanValue, looksLikeAssertion } from '../text'
+
+// ─── Coverage rules (close common gaps) ──────────────────────────────────────
+
+/** Bare login/logout: "Log in", "Sign in", "Login to the app". */
+export const bareLoginRule: StepRule = {
+  name: 'bare-login',
+  description: 'Logs in (no credentials given): "log in", "sign in"',
+  apply(step) {
+    if (!/^(?:log\s?in|sign\s?in)(?:\s+(?:to|into)\s+.+)?$/i.test(step.trim())) return null
+    return {
+      lines: [`await page.getByRole('button', { name: /log ?in|sign ?in/i }).click()`],
+      strategies: ['role'],
+      assumptions: ['Assumed a login/sign-in button (no credentials were given).'],
+      confidence: 0.58,
+    }
+  },
+}
+
+/** "Confirm the deletion", "Cancel", "Click Yes". */
+export const confirmCancelRule: StepRule = {
+  name: 'confirm-cancel',
+  description: 'Confirms/cancels a dialog: "confirm the deletion", "cancel", "click Yes/No"',
+  apply(step) {
+    const s = step.trim()
+    // Never turn an assertion ("confirm the total reads $5") or an ecommerce
+    // order step ("confirm and place my order") into a generic dialog click.
+    if (looksLikeAssertion(s)) return null
+    const ecommerceTail = /\b(?:order|place|checkout|payment|purchase|cart)\b/i.test(s)
+    if (
+      /^(?:click\s+)?(?:the\s+)?(?:confirm(?:ation)?|yes|ok)(?:\s+button)?$/i.test(s) ||
+      (/^confirm\s+(?:the\s+)?[\w ]{1,30}$/i.test(s) && !ecommerceTail)
+    ) {
+      return {
+        lines: [`await page.getByRole('button', { name: /confirm|yes|ok/i }).click()`],
+        strategies: ['role'],
+        assumptions: ['Assumed a Confirm/Yes/OK button; adjust if the label differs.'],
+        confidence: 0.55,
+      }
+    }
+    if (
+      /^(?:click\s+)?(?:the\s+)?(?:cancel|no)(?:\s+button)?$/i.test(s) ||
+      /^cancel\s+(?:the\s+)?[\w ]{1,30}$/i.test(s)
+    ) {
+      return {
+        lines: [`await page.getByRole('button', { name: /cancel|no/i }).click()`],
+        strategies: ['role'],
+        assumptions: ['Assumed a Cancel/No button; adjust if the label differs.'],
+        confidence: 0.55,
+      }
+    }
+    return null
+  },
+}
+
+/** "Choose Male", "Select Premium" — pick an option/radio/card by visible text. */
+export const chooseOptionRule: StepRule = {
+  name: 'choose-option',
+  description: 'Picks an option by text: "choose <name>", "select <name>" (no "from")',
+  apply(step) {
+    const m = /^(?:choose|select|pick)\s+(?:the\s+)?(.+)$/i.exec(step.trim())
+    if (!m) return null
+    const name = cleanValue(m[1])
+    return {
+      lines: [`await page.getByText(${lit(name)}).click()`],
+      strategies: ['text'],
+      assumptions: [
+        `Assumed "${name}" is a clickable option/radio/card; for a native <select> use "select ${name} from <field>".`,
+      ],
+      confidence: 0.55,
+    }
+  },
+}
+
+/** Generic navigation to a named section via a nav link: "go to Reports". */
+export const navToGenericRule: StepRule = {
+  name: 'nav-to',
+  description: 'Navigates via a nav link: "go to <name>", "navigate to <name>"',
+  apply(step) {
+    const m = /^(?:go to|navigate to|visit)\s+(?:the\s+)?(.+)$/i.exec(step.trim())
+    if (!m) return null
+    const name = cleanLabel(m[1])
+    return {
+      lines: [`await page.getByRole('link', { name: ${lit(name)} }).click()`],
+      strategies: ['role'],
+      assumptions: [`Assumed "${name}" is a navigation link; use page.goto() if it is a URL.`],
+      confidence: 0.55,
+    }
+  },
+}
 
 /**
  * Natural-language rules — common ways real QA engineers phrase steps that don't
@@ -96,6 +186,57 @@ export const openElementRule: StepRule = {
   },
 }
 
+/** "Open/switch to the Reports tab", "click the Settings tab" -> role=tab. */
+export const tabRule: StepRule = {
+  name: 'select-tab',
+  description: 'Activates a tab: "open the <name> tab", "switch to the <name> tab"',
+  apply(step) {
+    if (/\bnew\s+(?:tab|window)\b/i.test(step)) return null // browser-level, out of scope
+    const m =
+      /^(?:open|click(?:\s+on)?|select|switch to|go to|navigate to|activate|view)\s+(?:the\s+)?(.+?)\s+tab$/i.exec(
+        step.trim(),
+      )
+    if (!m) return null
+    const name = cleanLabel(m[1])
+    // Ordinals ("second", "3rd", "last") are positional -> let the nth-click rule handle them.
+    if (
+      /^(?:first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|last|next|previous|\d+(?:st|nd|rd|th)?)$/i.test(
+        name,
+      )
+    ) {
+      return null
+    }
+    return {
+      lines: [`await page.getByRole('tab', { name: ${lit(name)} }).click()`],
+      strategies: ['role'],
+      assumptions: [`Assumed "${name}" is a tab (role="tab").`],
+      confidence: 0.7,
+    }
+  },
+}
+
+/** "Select Male for Gender", "choose Express for shipping" -> radio option. */
+export const radioForRule: StepRule = {
+  name: 'radio-for',
+  description: 'Selects a radio option: "select <option> for <group>"',
+  apply(step) {
+    const m = /^(?:select|choose|pick|set)\s+(?:the\s+)?(.+?)\s+for\s+(?:the\s+)?(.+?)$/i.exec(
+      step.trim(),
+    )
+    if (!m) return null
+    const value = cleanValue(m[1])
+    const group = cleanLabel(m[2])
+    return {
+      lines: [`await page.getByRole('radio', { name: ${lit(value)} }).check()`],
+      strategies: ['role'],
+      assumptions: [
+        `Assumed "${value}" is a radio option for "${group}"; use getByLabel('${group}').selectOption() if it is a <select>.`,
+      ],
+      confidence: 0.58,
+    }
+  },
+}
+
 // ─── Action naturalizations ──────────────────────────────────────────────────
 
 const btnRegex = (re: string) => `await page.getByRole('button', { name: ${re} }).click()`
@@ -115,12 +256,23 @@ export const submitFormRule: StepRule = {
   },
 }
 
-/** "Add the item to the cart", "add the first product to the basket". */
+const CART = '(?:shopping\\s+)?(?:cart|basket|bag)'
+
+/** "Add to cart", "Add the item to my basket", "Put it in the bag". */
 export const addToCartRule: StepRule = {
   name: 'add-to-cart',
-  description: 'Adds to cart: "add the item to the cart"',
+  description: 'Adds to cart: "add to cart", "add the item to my basket", "put it in the bag"',
   apply(step) {
-    if (!/^add\s+.+\s+to\s+(?:the\s+)?(?:cart|basket|bag)$/i.test(step.trim())) return null
+    const s = step.trim()
+    if (
+      !new RegExp(`^add\\s+to\\s+(?:the\\s+|my\\s+|your\\s+)?${CART}$`, 'i').test(s) &&
+      !new RegExp(
+        `^(?:add|put|place|drop|toss|throw)(?:\\s+.+?)?\\s+(?:to|in|into)\\s+(?:the\\s+|my\\s+|your\\s+)?${CART}$`,
+        'i',
+      ).test(s)
+    ) {
+      return null
+    }
     return {
       lines: [btnRegex('/add to (?:cart|basket|bag)/i')],
       strategies: ['role'],
@@ -130,31 +282,41 @@ export const addToCartRule: StepRule = {
   },
 }
 
-/** "Proceed to checkout", "go to checkout", "checkout". */
+/** "Proceed to checkout", "continue to payment", "check out as a guest". */
 export const checkoutRule: StepRule = {
   name: 'checkout',
-  description: 'Proceeds to checkout: "proceed to checkout"',
+  description: 'Proceeds to checkout: "proceed to checkout", "continue to payment"',
   apply(step) {
-    if (!/^(?:proceed to|go to|continue to)?\s*(?:the\s+)?check\s?out$/i.test(step.trim())) {
-      return null
-    }
+    const s = step.trim()
+    const checkout =
+      /^(?:proceed to|go to|continue to|move to)?\s*(?:the\s+)?check\s?out(?:\s+(?:as\s+a\s+guest|now))?$/i.test(
+        s,
+      )
+    const payment = /^(?:proceed|continue|go|move)\s+to\s+(?:the\s+)?payment$/i.test(s)
+    if (!checkout && !payment) return null
     return {
-      lines: [btnRegex('/check ?out/i')],
+      lines: [btnRegex(payment ? '/payment|continue/i' : '/check ?out/i')],
       strategies: ['role'],
-      assumptions: ['Assumed a "Checkout" button/link.'],
+      assumptions: [`Assumed a "${payment ? 'Payment/Continue' : 'Checkout'}" button/link.`],
       confidence: 0.6,
     }
   },
 }
 
-/** "Place the order", "place order". */
+/** "Place the order", "submit my order", "complete the purchase". */
 export const placeOrderRule: StepRule = {
   name: 'place-order',
-  description: 'Places an order: "place the order"',
+  description: 'Places an order: "place the order", "submit order", "complete purchase"',
   apply(step) {
-    if (!/^place\s+(?:the\s+)?order$/i.test(step.trim())) return null
+    if (
+      !/^(?:place|submit|complete|finalize|confirm)\s+(?:the\s+|my\s+)?(?:order|purchase)$/i.test(
+        step.trim(),
+      )
+    ) {
+      return null
+    }
     return {
-      lines: [btnRegex('/place order/i')],
+      lines: [btnRegex('/place order|submit order|complete (?:order|purchase)|buy now/i')],
       strategies: ['role'],
       assumptions: ['Assumed a "Place order" button.'],
       confidence: 0.6,
@@ -162,17 +324,69 @@ export const placeOrderRule: StepRule = {
   },
 }
 
-/** "Remove the product from the cart". */
+/** "Remove the product from the cart", "delete the line item". */
 export const removeFromCartRule: StepRule = {
   name: 'remove-from-cart',
-  description: 'Removes from cart: "remove the product from the cart"',
+  description: 'Removes from cart: "remove the product from the cart", "delete the line item"',
   apply(step) {
-    if (!/^remove\s+.+\s+from\s+(?:the\s+)?(?:cart|basket|bag)$/i.test(step.trim())) return null
+    const s = step.trim()
+    if (
+      !new RegExp(`^remove\\s+.+\\s+from\\s+(?:the\\s+|my\\s+)?${CART}$`, 'i').test(s) &&
+      !/^(?:remove|delete)\s+(?:the\s+)?(?:line\s+item|item|product)$/i.test(s)
+    ) {
+      return null
+    }
     return {
-      lines: [btnRegex('/remove/i')],
+      lines: [btnRegex('/remove|delete/i')],
       strategies: ['role'],
       assumptions: ['Assumed a "Remove" button; scope to the right line item if multiple exist.'],
       confidence: 0.58,
+    }
+  },
+}
+
+/** "Empty the cart", "clear my basket", "remove all items". */
+export const emptyCartRule: StepRule = {
+  name: 'empty-cart',
+  description: 'Empties the cart: "empty the cart", "clear my basket", "remove all items"',
+  apply(step) {
+    const s = step.trim()
+    if (
+      !new RegExp(`^(?:empty|clear)\\s+(?:the\\s+|my\\s+|your\\s+)?${CART}$`, 'i').test(s) &&
+      !/^remove\s+all\s+(?:the\s+)?items(?:\s+from\s+(?:the\s+|my\s+)?(?:cart|basket|bag))?$/i.test(
+        s,
+      )
+    ) {
+      return null
+    }
+    return {
+      lines: [btnRegex('/empty (?:cart|basket|bag)|clear (?:cart|basket|bag)|remove all/i')],
+      strategies: ['role'],
+      assumptions: ['Assumed an "Empty cart" button; some apps require removing each line item.'],
+      confidence: 0.55,
+    }
+  },
+}
+
+/** "Add to wishlist", "save for later", "add to favorites". */
+export const wishlistRule: StepRule = {
+  name: 'wishlist',
+  description: 'Saves an item: "add to wishlist", "save for later", "add to favorites"',
+  apply(step) {
+    const s = step.trim()
+    if (
+      !/^(?:add|save)(?:\s+.+?)?\s+to\s+(?:the\s+|my\s+|your\s+)?(?:wish\s?list|favou?rites|saved\s+items)$/i.test(
+        s,
+      ) &&
+      !/^save\s+(?:it\s+|this\s+|the\s+item\s+)?for\s+later$/i.test(s)
+    ) {
+      return null
+    }
+    return {
+      lines: [btnRegex('/wish ?list|save for later|favou?rite|save/i')],
+      strategies: ['role'],
+      assumptions: ['Assumed a "Wishlist/Save for later" button.'],
+      confidence: 0.55,
     }
   },
 }
@@ -215,27 +429,44 @@ export const switchToggleRule: StepRule = {
   name: 'switch-toggle',
   description: 'Toggles a switch: "switch on/off <name>", "turn on/off <name>"',
   apply(step) {
-    const on = /^(?:switch|turn)\s+on\s+(?:the\s+)?(.+)$/i.exec(step.trim())
-    if (on) {
-      const name = on[1].trim()
-      return {
-        lines: [`await page.getByLabel(${lit(name)}).check()`],
-        strategies: ['label'],
-        assumptions: [`Assumed "${name}" is a labelled switch/toggle.`],
-        confidence: 0.62,
-      }
+    const s = step.trim()
+    let name: string | null = null
+    let action: 'on' | 'off' | 'toggle' | null = null
+    let m: RegExpExecArray | null
+    // on/off BEFORE the name: "turn on dark mode", "switch off notifications"
+    if (
+      (m =
+        /^(?:switch|turn|toggle|flip)\s+(on|off)\s+(?:the\s+)?(.+?)(?:\s+(?:switch|toggle))?$/i.exec(
+          s,
+        ))
+    ) {
+      action = m[1].toLowerCase() as 'on' | 'off'
+      name = m[2]
+    } else if (
+      // on/off AFTER the name: "toggle the Dark Mode switch on", "turn notifications off"
+      (m =
+        /^(?:switch|turn|toggle|flip)\s+(?:the\s+)?(.+?)(?:\s+(?:switch|toggle))?\s+(on|off)$/i.exec(
+          s,
+        ))
+    ) {
+      name = m[1]
+      action = m[2].toLowerCase() as 'on' | 'off'
+    } else if ((m = /^(?:toggle|flip)\s+(?:the\s+)?(.+?)(?:\s+(?:switch|toggle))?$/i.exec(s))) {
+      // bare "toggle X" -> flip with a click
+      name = m[1]
+      action = 'toggle'
     }
-    const off = /^(?:switch|turn)\s+off\s+(?:the\s+)?(.+)$/i.exec(step.trim())
-    if (off) {
-      const name = off[1].trim()
-      return {
-        lines: [`await page.getByLabel(${lit(name)}).uncheck()`],
-        strategies: ['label'],
-        assumptions: [`Assumed "${name}" is a labelled switch/toggle.`],
-        confidence: 0.62,
-      }
+    if (!name || !action) return null
+    const clean = cleanLabel(name)
+    const method = action === 'off' ? 'uncheck()' : action === 'on' ? 'check()' : 'click()'
+    return {
+      lines: [`await page.getByRole('switch', { name: ${lit(clean)} }).${method}`],
+      strategies: ['role'],
+      assumptions: [
+        `Assumed "${clean}" is a switch (role="switch"); use getByLabel() if it is a plain checkbox.`,
+      ],
+      confidence: 0.62,
     }
-    return null
   },
 }
 
@@ -545,15 +776,17 @@ export const couponRule: StepRule = {
   description: 'Applies a coupon: "apply the discount code <code>"',
   apply(step) {
     const m =
-      /^apply\s+(?:the\s+)?(?:discount\s+code|coupon(?:\s+code)?|promo(?:\s+code)?|voucher)\s+(.+)$/i.exec(
+      /^(?:apply|enter|use|redeem|add)\s+(?:the\s+)?(?:discount\s+code|coupon(?:\s+code)?|promo(?:\s+code)?|gift\s+card|voucher(?:\s+code)?)\s+(.+)$/i.exec(
         step.trim(),
       )
     if (!m) return null
-    const code = m[1].trim()
+    // Capture only the code token; ignore trailing "and hit apply", "at checkout".
+    const codeToken = /^["']?([A-Za-z0-9][A-Za-z0-9_-]{1,})["']?/.exec(m[1].trim())
+    const code = codeToken ? codeToken[1] : m[1].trim().split(/\s+/)[0]
     return {
       lines: [
-        `await page.getByLabel(/coupon|promo|discount|voucher/i).fill(${lit(code)})`,
-        `await page.getByRole('button', { name: /apply/i }).click()`,
+        `await page.getByLabel(/coupon|promo|discount|voucher|gift\\s*card/i).fill(${lit(code)})`,
+        `await page.getByRole('button', { name: /apply|redeem/i }).click()`,
       ],
       strategies: ['label', 'role'],
       assumptions: ['Assumed a coupon input + "Apply" button; adjust locators to the app.'],
@@ -593,7 +826,7 @@ export const totalIsRule: StepRule = {
       )
     if (!m) return null
     return {
-      lines: [`await expect(page.getByText(${lit(m[1].trim())})).toBeVisible()`],
+      lines: [`await expect(page.getByText(${lit(cleanValue(m[1]))})).toBeVisible()`],
       strategies: ['text'],
       assumptions: [
         `Asserted the value "${m[1].trim()}" is visible; scope to the total element if ambiguous.`,
@@ -608,7 +841,11 @@ export const pageShouldLoadRule: StepRule = {
   name: 'page-should-load',
   description: 'Waits for load: "the page should load"',
   apply(step) {
-    if (!/^the\s+page\s+should\s+(?:load|finish loading|be loaded|be ready)$/i.test(step.trim())) {
+    if (
+      !/^(?:verify\s+(?:that\s+)?)?the\s+page\s+(?:should\s+(?:load|finish loading|be loaded|be ready)|is\s+(?:loaded|ready))$/i.test(
+        step.trim(),
+      )
+    ) {
       return null
     }
     return {

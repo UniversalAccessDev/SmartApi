@@ -1,8 +1,32 @@
 import { StepRule } from '../types'
 import { lit } from '../../utils/literal'
+import { cleanLabel, cleanValue, looksLikeAssertion } from '../text'
 
 const labelAssumption = (field: string): string =>
   `Assumed the field "${field}" is reachable via getByLabel(); switch to getByPlaceholder() or getByRole() if it has no associated <label>.`
+
+const escapeRegex = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/**
+ * Clean a captured fill value: drop a trailing "in/into the <X> field/picker"
+ * qualifier that leaked into the value, a leading echoed "the <field>" descriptor,
+ * and anything past an " and "/", " clause boundary (a second field=value pair).
+ */
+const cleanFillValue = (rawValue: string, field: string): string => {
+  let v = cleanValue(rawValue)
+  // trailing qualifier: "P@ss into the password field", "2025-12-25 in the Start Date picker"
+  v = v
+    .replace(
+      /\s+(?:in|into|on)\s+the\s+[\w\s'’-]+?\s+(?:field|input|box|textarea|text area|picker|dropdown|combobox|area)$/i,
+      '',
+    )
+    .trim()
+  // second clause: "25 ... and 30 in the Weight field" -> keep first value
+  v = v.split(/\s+and\s+|\s*,\s+/i)[0].trim()
+  // leading echoed field descriptor: field "password" -> value "the password P@ss" -> "P@ss"
+  if (field) v = v.replace(new RegExp(`^the\\s+${escapeRegex(field)}\\s+`, 'i'), '').trim()
+  return v || cleanValue(rawValue)
+}
 
 /**
  * Fill a form field. Supports several natural phrasings:
@@ -18,14 +42,14 @@ export const fillRule: StepRule = {
   apply(step) {
     const s = step.trim()
 
-    // field-first phrasings
+    // field-first phrasings: "enter <field> as <value>", "fill <field> with <value>", "set <field> to <value>"
     const fieldFirst =
-      /^(?:enter|input)\s+(.+?)\s+as\s+(.+)$/i.exec(s) ||
-      /^(?:fill(?:\s+in)?|set)\s+(.+?)\s+with\s+(.+)$/i.exec(s) ||
-      /^set\s+(.+?)\s+to\s+(.+)$/i.exec(s)
+      /^(?:enter|input|type|put|write|key\s+in)\s+(.+?)\s+as\s+(.+)$/i.exec(s) ||
+      /^(?:fill(?:\s+in)?|set|update)\s+(.+?)\s+with\s+(.+)$/i.exec(s) ||
+      /^(?:set|change|update)\s+(.+?)\s+to\s+(.+)$/i.exec(s)
     if (fieldFirst) {
-      const field = fieldFirst[1].trim()
-      const value = fieldFirst[2].trim()
+      const field = cleanLabel(fieldFirst[1])
+      const value = cleanFillValue(fieldFirst[2], field)
       return {
         lines: [`await page.getByLabel(${lit(field)}).fill(${lit(value)})`],
         strategies: ['label'],
@@ -34,12 +58,32 @@ export const fillRule: StepRule = {
       }
     }
 
+    // leading-field phrasing: "In the <field> field, type <value>" / "For <field>, enter <value>"
+    const leadingField =
+      /^(?:in|into|for)\s+(?:the\s+)?(.+?)\s+(?:field|input|box)?\s*,?\s+(?:type|enter|input|put|write|fill\s+in|key\s+in)\s+(.+)$/i.exec(
+        s,
+      )
+    if (leadingField) {
+      const field = cleanLabel(leadingField[1])
+      const value = cleanFillValue(leadingField[2], field)
+      return {
+        lines: [`await page.getByLabel(${lit(field)}).fill(${lit(value)})`],
+        strategies: ['label'],
+        assumptions: [labelAssumption(field)],
+        confidence: 0.74,
+      }
+    }
+
     // value-first phrasing: "type <value> in/into the <field> field"
     const valueFirst =
-      /^(?:type|enter|input)\s+(.+?)\s+(?:in|into)\s+(?:the\s+)?(.+?)(?:\s+field)?$/i.exec(s)
+      /^(?:type|enter|input|write|paste|key\s+in)\s+(.+?)\s+(?:in|into)\s+(?:the\s+)?(.+?)(?:\s+(?:field|input|box))?$/i.exec(
+        s,
+      )
     if (valueFirst) {
-      const value = valueFirst[1].trim()
-      const field = valueFirst[2].trim()
+      const field = cleanLabel(valueFirst[2].split(/\s+and\s+/i)[0])
+      // "put/type X in the cart/basket" is an ecommerce action, not a fill.
+      if (/^(?:cart|basket|bag|wishlist|favou?rites)$/i.test(field)) return null
+      const value = cleanFillValue(valueFirst[1], field)
       return {
         lines: [`await page.getByLabel(${lit(field)}).fill(${lit(value)})`],
         strategies: ['label'],
@@ -68,7 +112,7 @@ export const placeholderFillRule: StepRule = {
     if (valueFirst) {
       return {
         lines: [
-          `await page.getByPlaceholder(${lit(valueFirst[2].trim())}).fill(${lit(valueFirst[1].trim())})`,
+          `await page.getByPlaceholder(${lit(cleanLabel(valueFirst[2]))}).fill(${lit(cleanValue(valueFirst[1]))})`,
         ],
         strategies: ['placeholder'],
         assumptions: [],
@@ -79,7 +123,7 @@ export const placeholderFillRule: StepRule = {
     if (fieldFirst) {
       return {
         lines: [
-          `await page.getByPlaceholder(${lit(fieldFirst[1].trim())}).fill(${lit(fieldFirst[2].trim())})`,
+          `await page.getByPlaceholder(${lit(cleanLabel(fieldFirst[1]))}).fill(${lit(cleanValue(fieldFirst[2]))})`,
         ],
         strategies: ['placeholder'],
         assumptions: [],
@@ -95,13 +139,15 @@ export const checkRule: StepRule = {
   name: 'check',
   description: 'Checks a checkbox: "check <name>", "tick <name>", "enable <name>"',
   apply(step) {
+    // "Check that the total is $5" is an assertion, not a checkbox action.
+    if (looksLikeAssertion(step)) return null
     const match =
       /^(?:check|tick|enable)\s+(?:the\s+)?(.+?)(?:\s+(?:checkbox|toggle|option))?$/i.exec(
         step.trim(),
       )
     if (!match) return null
 
-    const name = match[1].trim()
+    const name = cleanLabel(match[1])
     return {
       lines: [`await page.getByLabel(${lit(name)}).check()`],
       strategies: ['label'],
@@ -122,7 +168,7 @@ export const uncheckRule: StepRule = {
       )
     if (!match) return null
 
-    const name = match[1].trim()
+    const name = cleanLabel(match[1])
     return {
       lines: [`await page.getByLabel(${lit(name)}).uncheck()`],
       strategies: ['label'],
@@ -144,8 +190,8 @@ export const selectRule: StepRule = {
       )
     if (!match) return null
 
-    const option = match[1].trim()
-    const field = match[2].trim()
+    const option = cleanValue(match[1])
+    const field = cleanLabel(match[2])
     return {
       lines: [`await page.getByLabel(${lit(field)}).selectOption(${lit(option)})`],
       strategies: ['label'],
@@ -166,7 +212,7 @@ export const radioRule: StepRule = {
       step.trim(),
     )
     if (!match) return null
-    const name = match[1].trim()
+    const name = cleanLabel(match[1])
     return {
       lines: [`await page.getByLabel(${lit(name)}).check()`],
       strategies: ['label'],
@@ -181,11 +227,14 @@ export const clearFieldRule: StepRule = {
   name: 'clear-field',
   description: 'Clears an input: "clear the <field> field", "empty <field>"',
   apply(step) {
+    if (looksLikeAssertion(step)) return null
     const match = /^(?:clear|empty)\s+(?:the\s+)?(.+?)(?:\s+(?:field|input|box))?$/i.exec(
       step.trim(),
     )
     if (!match) return null
-    const field = match[1].trim()
+    // "Empty the cart/basket/bag" is an ecommerce action, not an input clear.
+    if (/^(?:cart|basket|bag|trash|wishlist)$/i.test(cleanLabel(match[1]))) return null
+    const field = cleanLabel(match[1])
     return {
       lines: [`await page.getByLabel(${lit(field)}).clear()`],
       strategies: ['label'],
@@ -205,8 +254,8 @@ export const fileUploadRule: StepRule = {
         step.trim(),
       )
     if (withField) {
-      const file = withField[1].trim()
-      const field = withField[2].trim()
+      const file = cleanValue(withField[1])
+      const field = cleanLabel(withField[2])
       return {
         lines: [`await page.getByLabel(${lit(field)}).setInputFiles(${lit(file)})`],
         strategies: ['label'],
@@ -218,7 +267,7 @@ export const fileUploadRule: StepRule = {
     }
     const simple = /^(?:upload|attach)\s+(?:the\s+)?(?:file\s+)?(.+)$/i.exec(step.trim())
     if (simple) {
-      const file = simple[1].trim()
+      const file = cleanValue(simple[1])
       return {
         lines: [`await page.locator('input[type="file"]').setInputFiles(${lit(file)})`],
         strategies: ['label'],

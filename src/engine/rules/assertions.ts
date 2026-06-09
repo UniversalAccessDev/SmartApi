@@ -1,22 +1,34 @@
 import { StepRule } from '../types'
 import { lit } from '../../utils/literal'
+import { cleanLabel, cleanText, cleanValue, unquote } from '../text'
 
 /** Assert the page URL: "verify url is X", "expect the url to contain X". */
 export const assertUrlRule: StepRule = {
   name: 'assert-url',
   description: 'Asserts the page URL: "verify url is <url>", "url should contain <fragment>"',
   apply(step) {
+    const s = step.trim()
     const match =
-      /^(?:verify|assert|ensure|expect|check)\s+(?:that\s+)?(?:the\s+)?(?:page\s+)?url\s+(?:is|to be|equals|should be|contains|should contain)\s+(.+)$/i.exec(
-        step.trim(),
+      /^(?:verify|assert|ensure|expect|check|make sure)\s+(?:that\s+)?(?:the\s+)?(?:page\s+)?url\s+(?:is|to be|equals|should be|contains|should contain)\s+(.+)$/i.exec(
+        s,
       )
-    if (!match) return null
-
+    // Redirect phrasings: "I get redirected to /login", "the page navigates to X".
+    const redirect =
+      /^(?:verify\s+(?:that\s+)?)?(?:i\s+(?:get|am)\s+redirected|i\s+am\s+(?:taken|sent)|(?:the\s+)?(?:page|url|browser)\s+(?:redirects?|navigates?|goes?|changes?))\s+to\s+(.+)$/i.exec(
+        s,
+      )
+    const m = match || redirect
+    if (!m) return null
+    const target = cleanValue(m[1])
+    const isContains = /contains?/.test(s.toLowerCase()) && Boolean(match)
+    const matcher = isContains
+      ? `toHaveURL(new RegExp(${lit(target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))}))`
+      : `toHaveURL(${lit(target)})`
     return {
-      lines: [`await expect(page).toHaveURL(${lit(match[1].trim())})`],
+      lines: [`await expect(page).${matcher}`],
       strategies: ['url'],
       assumptions: [],
-      confidence: 0.85,
+      confidence: 0.82,
     }
   },
 }
@@ -33,7 +45,7 @@ export const assertTitleRule: StepRule = {
     if (!match) return null
 
     const op = match[1].toLowerCase()
-    const value = match[2].trim()
+    const value = cleanValue(match[2])
     const isContains = /contain|include/.test(op)
     const matcher = isContains
       ? `toHaveTitle(new RegExp(${lit(value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))}, 'i'))`
@@ -59,8 +71,12 @@ export const assertVisibleRule: StepRule = {
     const s = step.trim()
 
     const patterns: RegExp[] = [
+      /^(?:verify|assert|ensure|confirm|check|make sure)\s+(?:that\s+)?(?:i (?:can )?see|we (?:can )?see|you (?:can )?see)\s+(.+)$/i,
+      /^(?:i (?:can )?see|i should see)\s+(.+)$/i,
       /^(?:verify|assert|ensure|confirm|check|make sure)\s+(?:that\s+)?(.+?)\s+(?:appears?|is\s+(?:visible|displayed|present|shown)|shows up|exists)\b.*$/i,
       /^(.+?)\s+should\s+(?:be\s+visible|appear|be\s+displayed|be\s+present)$/i,
+      // bare passive, no lead-in: 'The error message "X" is displayed'
+      /^(.+?)\s+(?:is|are)\s+(?:visible|displayed|shown|present|on\s+(?:the\s+)?(?:screen|page))$/i,
       /^expect to see\s+(.+)$/i,
       /^see\s+(.+)$/i,
     ]
@@ -68,7 +84,7 @@ export const assertVisibleRule: StepRule = {
     for (const pattern of patterns) {
       const match = pattern.exec(s)
       if (match) {
-        const text = match[1].trim()
+        const text = cleanText(match[1])
         return {
           lines: [`await expect(page.getByText(${lit(text)})).toBeVisible()`],
           strategies: ['text'],
@@ -83,26 +99,85 @@ export const assertVisibleRule: StepRule = {
   },
 }
 
-/** Assert an element contains text: "verify the header contains Welcome". */
+/**
+ * Locate an assertion "area" (the subject of the check). Known structural words
+ * resolve to a role so "the heading reads X" targets the heading, not literal
+ * text "heading". Everything else falls back to getByText().
+ */
+const AREA_ROLE: Record<string, string> = {
+  heading: 'heading',
+  header: 'heading',
+  title: 'heading',
+  alert: 'alert',
+  dialog: 'dialog',
+  modal: 'dialog',
+}
+const areaLocator = (raw: string): { expr: string; strategy: 'role' | 'text' } => {
+  const area = cleanText(raw)
+  const role = AREA_ROLE[area.toLowerCase()]
+  if (role) return { expr: `page.getByRole('${role}')`, strategy: 'role' }
+  return { expr: `page.getByText(${lit(area)})`, strategy: 'text' }
+}
+
+/**
+ * Assert an element's text: "verify the header contains Welcome",
+ * "the heading reads X", "the total shows $5", "the message says X exactly".
+ * Uses toHaveText for exact phrasings (reads/says/equals/"exactly") and
+ * toContainText for partial ("contains/includes/shows/displays").
+ */
 export const assertContainsRule: StepRule = {
   name: 'assert-contains-text',
-  description: 'Asserts text content: "verify <area> contains <text>"',
+  description: 'Asserts text content: "verify <area> contains/reads/shows <text>"',
   apply(step) {
-    const match =
-      /^(?:verify|assert|ensure|confirm|check)\s+(?:that\s+)?(?:the\s+)?(.+?)\s+(?:contains|should contain|has)\s+(?:the\s+)?(?:text\s+)?(.+)$/i.exec(
+    const exactMatch =
+      /^(?:verify|assert|ensure|confirm|check|make sure)\s+(?:that\s+)?(?:the\s+)?(.+?)\s+(?:reads?|says?|equals?|should\s+(?:read|say|equal)|is\s+exactly)\s+(?:exactly\s+)?(.+)$/i.exec(
         step.trim(),
       )
+    const partialMatch =
+      /^(?:verify|assert|ensure|confirm|check|make sure)\s+(?:that\s+)?(?:the\s+)?(.+?)\s+(?:contains?|should\s+contain|includes?|shows?|displays?|has\s+the\s+text)\s+(?:the\s+)?(?:text\s+)?(.+)$/i.exec(
+        step.trim(),
+      )
+    const match = exactMatch || partialMatch
     if (!match) return null
+    const exact = Boolean(exactMatch) && /\bexactly\b/i.test(step)
 
-    const area = match[1].trim()
-    const text = match[2].trim()
+    const area = cleanText(match[1])
+    const text = cleanValue(match[2])
+    // Input value-by-display: "the quantity input shows 3", "the Email field displays X"
+    // -> toHaveValue (the subject is an input, not a text region).
+    if (/\b(?:input|field|box|textbox|textarea)$/i.test(match[1].trim())) {
+      const fieldName = cleanLabel(match[1])
+      return {
+        lines: [`await expect(page.getByLabel(${lit(fieldName)})).toHaveValue(${lit(text)})`],
+        strategies: ['label'],
+        assumptions: [`Assumed "${fieldName}" is an input reachable via getByLabel().`],
+        confidence: 0.64,
+      }
+    }
+    // Never fabricate a locator from a generic container noun ("the page displays
+    // X"). Assert the (usually quoted) text is visible instead.
+    if (/^(?:page|screen|window|site|app|application|ui|view|content|body)$/i.test(area)) {
+      return {
+        lines: [`await expect(page.getByText(${lit(text)})).toBeVisible()`],
+        strategies: ['text'],
+        assumptions: [
+          `Asserted the text "${text}" is visible (the subject "${area}" is the whole page).`,
+        ],
+        confidence: 0.62,
+      }
+    }
+    const { expr, strategy } = areaLocator(match[1])
+    const matcher = exact ? `toHaveText(${lit(text)})` : `toContainText(${lit(text)})`
     return {
-      lines: [`await expect(page.getByText(${lit(area)})).toContainText(${lit(text)})`],
-      strategies: ['text'],
-      assumptions: [
-        `Assumed "${area}" can be located via getByText(); adjust the locator if it is a specific region/role.`,
-      ],
-      confidence: 0.6,
+      lines: [`await expect(${expr}).${matcher}`],
+      strategies: [strategy],
+      assumptions:
+        strategy === 'text'
+          ? [
+              `Assumed "${cleanText(match[1])}" is locatable via getByText(); adjust if it is a specific region/role.`,
+            ]
+          : [],
+      confidence: strategy === 'role' ? 0.68 : 0.6,
     }
   },
 }
@@ -121,7 +196,7 @@ export const waitForRule: StepRule = {
       )
     if (!match) return null
 
-    const text = match[1].trim()
+    const text = cleanText(match[1])
     return {
       lines: [`await expect(page.getByText(${lit(text)})).toBeVisible()`],
       strategies: ['text'],
@@ -144,13 +219,16 @@ export const assertHiddenRule: StepRule = {
   apply(step) {
     const s = step.trim()
     const patterns: RegExp[] = [
-      /^(?:verify|assert|ensure|confirm|check)\s+(?:that\s+)?(.+?)\s+(?:is\s+(?:not\s+(?:visible|displayed|present|shown)|hidden|gone|removed)|disappears?|is\s+no\s+longer\s+(?:visible|present|shown))\b.*$/i,
+      /^(?:verify|assert|ensure|confirm|check|make sure)\s+(?:that\s+)?(.+?)\s+(?:is\s+(?:not\s+(?:visible|displayed|present|shown)|hidden|gone|removed)|disappears?|is\s+no\s+longer\s+(?:visible|present|shown))\b.*$/i,
       /^(.+?)\s+should\s+(?:disappear|not\s+be\s+visible|be\s+hidden|be\s+removed|be\s+gone)$/i,
+      // "I should not see X", "we no longer see X", "you should not see X"
+      /^(?:verify|assert|ensure|confirm|check|make sure)\s+(?:that\s+)?(?:i|we|you)\s+(?:should\s+)?(?:no\s+longer\s+see|(?:do\s+)?not\s+see|don't\s+see|can(?:'t|not)\s+see)\s+(.+)$/i,
+      /^(?:i|we|you)\s+(?:should\s+)?(?:no\s+longer\s+see|(?:do\s+)?not\s+see|don't\s+see|can(?:'t|not)\s+see)\s+(.+)$/i,
     ]
     for (const pattern of patterns) {
       const match = pattern.exec(s)
       if (match) {
-        const text = match[1].trim()
+        const text = cleanText(match[1])
         return {
           lines: [`await expect(page.getByText(${lit(text)})).toBeHidden()`],
           strategies: ['text'],
@@ -167,16 +245,16 @@ export const assertHiddenRule: StepRule = {
 
 /** Map a target phrase to a locator, inferring button/link role from a suffix. */
 const elementLocator = (raw: string): { expr: string; strategy: 'role' | 'label' } => {
-  const name = raw.trim().replace(/^["']|["']$/g, '')
-  const roleMatch = /^(.*?)\s+(button|link|tab|checkbox)$/i.exec(name)
+  // Peel a trailing role suffix BEFORE cleaning, so a quoted name keeps its role.
+  const roleMatch = /^(.*?)\s+(button|link|tab|checkbox|menuitem|radio)$/i.exec(raw.trim())
   if (roleMatch) {
     const role = roleMatch[2].toLowerCase()
     return {
-      expr: `page.getByRole('${role}', { name: ${lit(roleMatch[1].trim())} })`,
+      expr: `page.getByRole('${role}', { name: ${lit(cleanLabel(roleMatch[1]))} })`,
       strategy: 'role',
     }
   }
-  return { expr: `page.getByLabel(${lit(name)})`, strategy: 'label' }
+  return { expr: `page.getByLabel(${lit(cleanLabel(raw))})`, strategy: 'label' }
 }
 
 /** Assert an element is disabled: "verify the Submit button is disabled". */
@@ -184,10 +262,14 @@ export const assertDisabledRule: StepRule = {
   name: 'assert-disabled',
   description: 'Asserts an element is disabled: "verify <element> is disabled/greyed out"',
   apply(step) {
+    const s = step.trim()
+    const STATE = '(?:disabled|greyed out|grayed out|not\\s+clickable|not\\s+enabled|inactive)'
     const match =
-      /^(?:verify|assert|ensure|confirm|check)\s+(?:that\s+)?(?:the\s+)?(.+?)\s+is\s+(?:disabled|greyed out|grayed out|not\s+clickable)$/i.exec(
-        step.trim(),
-      )
+      new RegExp(
+        `^(?:verify|assert|ensure|confirm|check|make sure)\\s+(?:that\\s+)?(?:the\\s+)?(.+?)\\s+is\\s+${STATE}$`,
+        'i',
+      ).exec(s) ||
+      new RegExp(`^(?:the\\s+)?(.+?)\\s+should\\s+(?:be|stay|remain)\\s+${STATE}$`, 'i').exec(s)
     if (!match) return null
     const { expr, strategy } = elementLocator(match[1])
     return {
@@ -204,10 +286,14 @@ export const assertEnabledRule: StepRule = {
   name: 'assert-enabled',
   description: 'Asserts an element is enabled: "verify <element> is enabled/clickable"',
   apply(step) {
+    const s = step.trim()
+    const STATE = '(?:enabled|clickable|active|not\\s+disabled)'
     const match =
-      /^(?:verify|assert|ensure|confirm|check)\s+(?:that\s+)?(?:the\s+)?(.+?)\s+is\s+(?:enabled|clickable|active)$/i.exec(
-        step.trim(),
-      )
+      new RegExp(
+        `^(?:verify|assert|ensure|confirm|check|make sure)\\s+(?:that\\s+)?(?:the\\s+)?(.+?)\\s+is\\s+${STATE}$`,
+        'i',
+      ).exec(s) ||
+      new RegExp(`^(?:the\\s+)?(.+?)\\s+should\\s+(?:be|become)\\s+${STATE}$`, 'i').exec(s)
     if (!match) return null
     const { expr, strategy } = elementLocator(match[1])
     return {
@@ -230,7 +316,7 @@ export const assertCheckedRule: StepRule = {
         s,
       )
     if (unchecked) {
-      const name = unchecked[1].trim()
+      const name = cleanLabel(unchecked[1])
       return {
         lines: [`await expect(page.getByLabel(${lit(name)})).not.toBeChecked()`],
         strategies: ['label'],
@@ -243,7 +329,7 @@ export const assertCheckedRule: StepRule = {
         s,
       )
     if (checked) {
-      const name = checked[1].trim()
+      const name = cleanLabel(checked[1])
       return {
         lines: [`await expect(page.getByLabel(${lit(name)})).toBeChecked()`],
         strategies: ['label'],
@@ -266,8 +352,8 @@ export const assertValueRule: StepRule = {
         step.trim(),
       )
     if (!match) return null
-    const field = match[1].trim()
-    const value = match[2].trim()
+    const field = cleanLabel(match[1])
+    const value = cleanValue(match[2])
     return {
       lines: [`await expect(page.getByLabel(${lit(field)})).toHaveValue(${lit(value)})`],
       strategies: ['label'],
@@ -289,7 +375,7 @@ export const assertHeadingRule: StepRule = {
     if (!match) return null
     return {
       lines: [
-        `await expect(page.getByRole('heading', { name: ${lit(match[1].trim())} })).toBeVisible()`,
+        `await expect(page.getByRole('heading', { name: ${lit(unquote(match[1]))} })).toBeVisible()`,
       ],
       strategies: ['role'],
       assumptions: [],
@@ -397,6 +483,50 @@ export const assertAttributeRule: StepRule = {
         confidence: 0.6,
       }
     }
+    // "the password field has type password", "the email input has placeholder ..."
+    const namedAttr =
+      /^(?:verify|assert|ensure|confirm|check|make sure)\s+(?:that\s+)?(?:the\s+)?(.+?)\s+(?:has|should\s+have)\s+(type|placeholder|name|role|aria-label|title|value|maxlength|pattern)\s+(?:of\s+|=\s*|set\s+to\s+)?(.+)$/i.exec(
+        step.trim(),
+      )
+    if (namedAttr) {
+      const field = cleanLabel(namedAttr[1])
+      const attrName = namedAttr[2].toLowerCase()
+      const attrVal = cleanValue(namedAttr[3])
+      const matcher =
+        attrName === 'value'
+          ? `toHaveValue(${lit(attrVal)})`
+          : `toHaveAttribute(${lit(attrName)}, ${lit(attrVal)})`
+      return {
+        lines: [`await expect(page.getByLabel(${lit(field)})).${matcher}`],
+        strategies: ['label'],
+        assumptions: [`Assumed "${field}" is reachable via getByLabel().`],
+        confidence: 0.66,
+      }
+    }
+    // boolean states: "the email field is readonly/required/editable"
+    const boolAttr =
+      /^(?:verify|assert|ensure|confirm|check|make sure)\s+(?:that\s+)?(?:the\s+)?(.+?)\s+is\s+(read-?only|required|editable|optional)$/i.exec(
+        step.trim(),
+      )
+    if (boolAttr) {
+      const field = cleanLabel(boolAttr[1])
+      const state = boolAttr[2].toLowerCase().replace('-', '')
+      const editable = state === 'editable'
+      const optional = state === 'optional'
+      const matcher = editable
+        ? 'toBeEditable()'
+        : optional
+          ? `not.toHaveAttribute('required', '')`
+          : state === 'readonly'
+            ? `toHaveAttribute('readonly', '')`
+            : `toHaveAttribute('required', '')`
+      return {
+        lines: [`await expect(page.getByLabel(${lit(field)})).${matcher}`],
+        strategies: ['label'],
+        assumptions: [`Assumed "${field}" is reachable via getByLabel().`],
+        confidence: 0.64,
+      }
+    }
     return null
   },
 }
@@ -427,6 +557,12 @@ const COUNT_ROLE: Record<string, string> = {
   cells: 'cell',
   tabs: 'tab',
   checkboxes: 'checkbox',
+  products: 'listitem',
+  cards: 'listitem',
+  results: 'listitem',
+  entries: 'row',
+  records: 'row',
+  'search results': 'listitem',
 }
 
 /**
@@ -445,7 +581,7 @@ export const assertCountRule: StepRule = {
     }
 
     const hasN =
-      /^(?:verify|assert|ensure|confirm|check)\s+(?:that\s+)?the\s+(?:table|list|grid)\s+has\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(rows|items|cells|options)$/i.exec(
+      /^(?:(?:verify|assert|ensure|confirm|check)\s+(?:that\s+)?)?the\s+(?:table|list|grid)\s+(?:has|should\s+have|should\s+contain|contains)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(rows|items|cells|options)$/i.exec(
         s,
       )
     if (hasN) {
@@ -464,8 +600,41 @@ export const assertCountRule: StepRule = {
       }
     }
 
+    // Comparators: "at least 10 rows", "more than 3 items", "fewer than 5 options".
+    const cmp =
+      /^(?:verify|assert|ensure|confirm|check|make sure)\s+(?:that\s+)?(?:the\s+(?:table|list|grid|results(?:\s+table)?)\s+(?:has|contains?|should\s+(?:have|contain))\s+|there\s+(?:are|should\s+be)\s+)?(at least|at most|more than|over|fewer than|less than|no more than|no fewer than|a minimum of|a maximum of)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(rows|items|list items|options|links|buttons|images|headings|cells|tabs|checkboxes|results)\b.*$/i.exec(
+        s,
+      )
+    if (cmp) {
+      const n = num(cmp[2])
+      const role =
+        COUNT_ROLE[cmp[3].toLowerCase()] ?? (cmp[3].toLowerCase() === 'results' ? 'listitem' : null)
+      if (n !== null && role) {
+        const op = cmp[1].toLowerCase()
+        let line: string
+        if (/at least|no fewer than|a minimum of/.test(op)) {
+          line = `await expect(page.getByRole('${role}').nth(${n - 1})).toBeVisible()`
+        } else if (/more than|over/.test(op)) {
+          line = `await expect(page.getByRole('${role}').nth(${n})).toBeVisible()`
+        } else if (/at most|no more than|a maximum of/.test(op)) {
+          line = `await expect(page.getByRole('${role}').nth(${n})).toHaveCount(0)`
+        } else {
+          // fewer than / less than N
+          line = `await expect(page.getByRole('${role}').nth(${n - 1})).toHaveCount(0)`
+        }
+        return {
+          lines: [line],
+          strategies: ['role'],
+          assumptions: [
+            `Approximated a "${op}" count check via an indexed visibility assertion on getByRole('${role}').`,
+          ],
+          confidence: 0.6,
+        }
+      }
+    }
+
     const nThings =
-      /^(?:verify|assert|ensure|confirm|check)\s+(?:that\s+)?(?:there\s+are\s+)?(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(rows|items|list items|options|links|buttons|images|headings|cells|tabs|checkboxes)\s+(?:are\s+)?(?:visible|shown|listed|displayed|present)$/i.exec(
+      /^(?:verify|assert|ensure|confirm|check|make sure)\s+(?:that\s+)?(?:there\s+(?:are|should\s+be)\s+|i\s+see\s+)?(?:exactly\s+|only\s+)?(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(rows|items|list items|options|links|buttons|images|headings|cells|tabs|checkboxes|products|cards|results|entries|records|search results)\s+(?:are\s+|should\s+be\s+)?(?:visible|shown|listed|displayed|present|in\s+(?:the\s+)?(?:list|table|results|grid))?$/i.exec(
         s,
       )
     if (nThings) {

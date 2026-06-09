@@ -36,6 +36,7 @@ import {
 } from './forms'
 import {
   pressKeyRule,
+  clipboardRule,
   hoverRule,
   closeOverlayRule,
   clickRule,
@@ -60,12 +61,16 @@ import {
   goHomeRule,
   nextPageRule,
   prevPageRule,
+  tabRule,
+  radioForRule,
   openElementRule,
   submitFormRule,
   addToCartRule,
   checkoutRule,
   placeOrderRule,
   removeFromCartRule,
+  emptyCartRule,
+  wishlistRule,
   acceptCookiesRule,
   sortByRule,
   switchToggleRule,
@@ -87,6 +92,10 @@ import {
   filterByRule,
   totalIsRule,
   pageShouldLoadRule,
+  bareLoginRule,
+  confirmCancelRule,
+  chooseOptionRule,
+  navToGenericRule,
 } from './natural'
 
 /**
@@ -115,6 +124,7 @@ export const RULES: StepRule[] = [
   prevPageRule,
 
   pressKeyRule,
+  clipboardRule,
 
   // Authentication — social/SSO and register/forgot before the credential login.
   socialLoginRule,
@@ -122,6 +132,7 @@ export const RULES: StepRule[] = [
   forgotPasswordRule,
   authLoginRule,
   authLogoutRule,
+  bareLoginRule,
   authVerifyLoggedInRule,
   authVerifyLoggedOutRule,
 
@@ -158,6 +169,8 @@ export const RULES: StepRule[] = [
   // Forms — placeholder fill before generic label fill.
   placeholderFillRule,
   fillRule,
+  tabRule,
+  radioForRule,
   radioRule,
   selectRule,
   checkRule,
@@ -174,7 +187,9 @@ export const RULES: StepRule[] = [
   addToCartRule,
   checkoutRule,
   placeOrderRule,
+  emptyCartRule,
   removeFromCartRule,
+  wishlistRule,
   deleteRowRule,
   selectAllRule,
   couponRule,
@@ -200,5 +215,9 @@ export const RULES: StepRule[] = [
   hoverRule,
   scrollRule,
   closeOverlayRule,
+  // Broad natural-language fallbacks — last, before the generic click.
+  confirmCancelRule,
+  navToGenericRule,
+  chooseOptionRule,
   clickRule,
 ]
