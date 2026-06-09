@@ -36,10 +36,14 @@ first table's rows), and writes screenshots.
 
 ## What it does natively (no Claude)
 
-- **Find elements** — the self-healing locator cascade (`resolve.js`).
+- **Find elements** — the self-healing locator cascade (`resolve.js`): role+name → exact text → label → placeholder → attribute → `/i` regex.
+- **Scoped finding** — honors a target's `within` container (row / card / menu), so "Edit in the row for Jane Doe" acts inside *that* row, not the first match.
+- **Selector-learning** — remembers which strategy won per host+target in `.smartx-cache.json` and tries it first next run, so repeat runs are instant and stable (deterministic, no AI).
 - **Run actions** — click / fill / hover / press / wait / conditional click / asserts.
+- **Extract data** — `read the cart total`, `extract the order number as orderId` → returns named values.
 - **Capture screenshots** — real `page.screenshot()` per `screenshot` action + a final full-page shot.
 - **Read page data** — title, URL, element inventory, headings, table extraction.
+- **Robust actions** — auto scroll-into-view + one re-resolve/retry on transient re-renders.
 
 ## Honest limits (where a no-vision pipeline can miss)
 

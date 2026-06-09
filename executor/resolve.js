@@ -3,18 +3,17 @@
 /**
  * Deterministic, Claude-free element resolution.
  *
- * Given a Smart API action target ({ by, value, nth }), build an ORDERED list of
- * candidate Playwright locators (primary strategy first, then progressively
- * looser fallbacks). The executor tries them in order and uses the first that
- * actually matches an element on the live page. This cascade is what stands in
- * for Claude vision: instead of "look at a screenshot and find it", we try the
- * handful of ways the element is most likely exposed and keep the one that hits.
+ * For a Smart API target ({ by, value, role?, nth?, within? }) build an ORDERED
+ * list of candidate locators (best strategy first, then looser fallbacks) and
+ * use the first that matches the live DOM. This cascade stands in for Claude
+ * vision. When `within` is present we resolve the container first and search the
+ * leaf inside it, preserving row/card/menu scoping.
  */
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-/** Build ordered candidate locators for a target. Each entry: { how, make }. */
-function candidates(page, target) {
+/** Ordered candidate locators for a target, rooted at `root` (page or Locator). */
+function candidates(root, target) {
   if (!target) return []
   const v = target.value
   const out = []
@@ -22,58 +21,100 @@ function candidates(page, target) {
 
   switch (target.by) {
     case 'text':
-      push("role=button name", () => page.getByRole('button', { name: v }))
-      push("role=link name", () => page.getByRole('link', { name: v }))
-      push("role=tab name", () => page.getByRole('tab', { name: v }))
-      push("role=menuitem name", () => page.getByRole('menuitem', { name: v }))
-      push("text exact", () => page.getByText(v, { exact: true }))
-      push("label", () => page.getByLabel(v))
-      push("text partial", () => page.getByText(v))
-      push("placeholder", () => page.getByPlaceholder(v))
-      push("title attr", () => page.locator(`[title="${v}"], [aria-label="${v}"]`))
-      push("text /i", () => page.getByText(new RegExp(escapeRe(v), 'i')))
+      // If the engine told us the role, try it first — most precise.
+      if (target.role)
+        push(`role=${target.role} name`, () => root.getByRole(target.role, { name: v }))
+      push('role=button name', () => root.getByRole('button', { name: v }))
+      push('role=link name', () => root.getByRole('link', { name: v }))
+      push('role=tab name', () => root.getByRole('tab', { name: v }))
+      push('role=menuitem name', () => root.getByRole('menuitem', { name: v }))
+      push('text exact', () => root.getByText(v, { exact: true }))
+      push('label', () => root.getByLabel(v))
+      push('text partial', () => root.getByText(v))
+      push('placeholder', () => root.getByPlaceholder(v))
+      push('title/aria attr', () => root.locator(`[title="${v}"], [aria-label="${v}"]`))
+      push('text /i', () => root.getByText(new RegExp(escapeRe(v), 'i')))
       break
     case 'label':
-      push("label", () => page.getByLabel(v))
-      push("placeholder", () => page.getByPlaceholder(v))
-      push("role=textbox name", () => page.getByRole('textbox', { name: v }))
-      push("role=combobox name", () => page.getByRole('combobox', { name: v }))
-      push("name attr", () => page.locator(`[name="${v}" i], [aria-label="${v}" i]`))
-      push("label /i", () => page.getByLabel(new RegExp(escapeRe(v), 'i')))
+      push('label', () => root.getByLabel(v))
+      push('placeholder', () => root.getByPlaceholder(v))
+      push('role=textbox name', () => root.getByRole('textbox', { name: v }))
+      push('role=combobox name', () => root.getByRole('combobox', { name: v }))
+      push('name/aria attr', () => root.locator(`[name="${v}" i], [aria-label="${v}" i]`))
+      push('label /i', () => root.getByLabel(new RegExp(escapeRe(v), 'i')))
       break
     case 'css':
-      push("css", () => page.locator(v))
+      push('css', () => root.locator(v))
       break
     case 'xpath':
-      push("xpath", () => page.locator(v.startsWith('xpath=') ? v : `xpath=${v}`))
+      push('xpath', () => root.locator(v.startsWith('xpath=') ? v : `xpath=${v}`))
       break
     case 'id':
-      push("#id", () => page.locator(`#${v}`))
-      push("testid", () => page.getByTestId(v))
-      push("name attr", () => page.locator(`[name="${v}"]`))
+      push('#id', () => root.locator(`#${v}`))
+      push('testid', () => root.getByTestId(v))
+      push('name attr', () => root.locator(`[name="${v}"]`))
       break
     default:
-      push("text partial", () => page.getByText(v))
+      push('text partial', () => root.getByText(v))
   }
   return out
 }
 
-/** Apply a .nth()/.first()/.last() modifier from the target. */
 function applyNth(locator, nth) {
   if (nth === undefined || nth === null) return locator
   if (nth === -1) return locator.last()
   return locator.nth(nth)
 }
 
-/**
- * Resolve a target to a live, present locator. Returns { locator, how, healed }
- * or null if nothing matched. `healed` is true when a non-primary candidate won
- * (i.e. the first-choice locator missed but a fallback recovered it).
- */
-async function resolve(page, target, timeout = 3500) {
-  const cands = candidates(page, target)
+/** Resolve a container scope to a single Locator (or null). */
+async function resolveScope(page, within, timeout) {
+  let loc
+  if (within.role) loc = page.getByRole(within.role, { name: within.value })
+  else if (within.by === 'css') {
+    loc = within.hasText
+      ? page.locator(within.value, { hasText: within.hasText })
+      : page.locator(within.value)
+  } else loc = page.getByText(within.value)
+
+  loc = applyNth(loc, within.nth)
   const deadline = Date.now() + timeout
-  // A couple of passes so dynamically-rendered elements get a chance to appear.
+  while (Date.now() < deadline) {
+    let n = 0
+    try {
+      n = await loc.count()
+    } catch {
+      n = 0
+    }
+    if (n > 0) return within.nth !== undefined ? loc : loc.first()
+    await page.waitForTimeout(120)
+  }
+  return null
+}
+
+/**
+ * Resolve a target to a live, present locator. Returns { locator, how, healed,
+ * scoped } or null. `healed` = a fallback (not the first candidate) won;
+ * `scoped` = it was resolved inside a `within` container.
+ */
+async function resolve(page, target, timeout = 3500, hint) {
+  let root = page
+  let scoped = false
+  if (target.within) {
+    const container = await resolveScope(page, target.within, Math.min(timeout, 2500))
+    if (container) {
+      root = container
+      scoped = true
+    }
+    // If the container is missing, fall back to a page-wide search (best effort).
+  }
+
+  let cands = candidates(root, target)
+  // Selector-learning: promote the previously-winning strategy to the front.
+  if (hint) {
+    const i = cands.findIndex((c) => c.how === hint)
+    if (i > 0) cands = [cands[i], ...cands.slice(0, i), ...cands.slice(i + 1)]
+  }
+  const deadline = Date.now() + timeout
   while (Date.now() < deadline) {
     for (let i = 0; i < cands.length; i++) {
       let count = 0
@@ -83,8 +124,12 @@ async function resolve(page, target, timeout = 3500) {
         count = 0
       }
       if (count > 0) {
-        const locator = applyNth(cands[i].make(), target.nth)
-        return { locator, how: cands[i].how, healed: i > 0 }
+        return {
+          locator: applyNth(cands[i].make(), target.nth),
+          how: cands[i].how,
+          healed: i > 0,
+          scoped,
+        }
       }
     }
     await page.waitForTimeout(150)
@@ -92,4 +137,4 @@ async function resolve(page, target, timeout = 3500) {
   return null
 }
 
-module.exports = { resolve, candidates, applyNth }
+module.exports = { resolve, resolveScope, candidates, applyNth }

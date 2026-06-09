@@ -10,11 +10,25 @@
 
 export type By = 'text' | 'label' | 'css' | 'xpath' | 'id'
 
+/** A container that scopes the search (e.g. a table row, a card). */
+export interface Scope {
+  by: By
+  value: string
+  /** ARIA role of the container, when known (e.g. "row"). */
+  role?: string
+  /** Text the container must contain (for css/listitem cards). */
+  hasText?: string
+  /** Index when the container itself was scoped with .nth()/.first()/.last(). */
+  nth?: number
+}
+
 export interface Target {
   by: By
   value: string
   /** Index when the locator was scoped with .nth()/.first()/.last() (-1 = last). */
   nth?: number
+  /** Container the element is searched within (preserves row/card scoping). */
+  within?: Scope
 }
 
 export type Action =
@@ -29,6 +43,7 @@ export type Action =
   | { type: 'assertUrl'; contains: string }
   | { type: 'assertVisible'; target: Target }
   | { type: 'conditionalclick'; guard: Target; click: { type: 'click'; target: Target } }
+  | { type: 'extract'; target: Target; prop: 'text' | 'value'; as?: string }
   | { type: 'note'; text: string }
 
 // JS string/regex literal fragments used across the statement patterns.
@@ -83,6 +98,46 @@ interface Call {
   arg?: string
 }
 
+/** Convert a discovered getBy/locator call into a base {by, value, role?}. */
+const callToBase = (c: Call): { by: By; value: string; role?: string } => {
+  switch (c.kind) {
+    case 'Text':
+    case 'AltText':
+      return { by: 'text', value: argValue(c.arg!) }
+    case 'Label':
+    case 'Placeholder':
+      return { by: 'label', value: argValue(c.arg!) }
+    case 'TestId':
+      return { by: 'css', value: `[data-testid="${argValue(c.arg!)}"]` }
+    case 'Role': {
+      if (c.name) {
+        const isRegex = c.name.trim().startsWith('/')
+        const value = isRegex ? regexNameToLiteral(fromRegex(c.name)) : argValue(c.name)
+        return { by: 'text', value, role: c.role }
+      }
+      return { by: 'css', value: `[role="${c.role}"]`, role: c.role }
+    }
+    default: {
+      // Locator
+      const sel = argValue(c.arg!)
+      if (/^(?:xpath=|\/\/|\.\/\/|\()/.test(sel))
+        return { by: 'xpath', value: sel.replace(/^xpath=/, '') }
+      if (/^#[\w-]+$/.test(sel)) return { by: 'id', value: sel.slice(1) }
+      return { by: 'css', value: sel }
+    }
+  }
+}
+
+/** Index modifier (.nth/.first/.last) appearing within a fragment, if any. */
+const nthAfter = (stmt: string, from: number): number | undefined => {
+  const tail = stmt.slice(from)
+  const nthM = /\.nth\((\d+)\)/.exec(tail)
+  if (nthM) return parseInt(nthM[1], 10)
+  if (/\.first\(\)/.test(tail)) return 0
+  if (/\.last\(\)/.test(tail)) return -1
+  return undefined
+}
+
 const parseTarget = (stmt: string): Target | null => {
   const calls: Call[] = []
   let m: RegExpExecArray | null
@@ -97,48 +152,31 @@ const parseTarget = (stmt: string): Target | null => {
   const otherRe = new RegExp(`getBy(Text|Label|Placeholder|TestId|AltText)\\((${ARG})\\)`, 'g')
   while ((m = otherRe.exec(stmt)) !== null) calls.push({ index: m.index, kind: m[1], arg: m[2] })
 
-  const locRe = new RegExp(`locator\\((${QUOTED})\\)`, 'g')
+  // locator('sel'[, { hasText: 'X' }])
+  const locRe = new RegExp(`locator\\((${QUOTED})(?:\\s*,\\s*\\{[^}]*\\})?\\)`, 'g')
   while ((m = locRe.exec(stmt)) !== null) calls.push({ index: m.index, kind: 'Locator', arg: m[1] })
 
   if (!calls.length) return null
   calls.sort((a, b) => a.index - b.index)
-  const last = calls[calls.length - 1]
+  const leaf = calls[calls.length - 1]
+  const leafNth = nthAfter(stmt, leaf.index + 1)
 
-  // Trailing index modifier on the chain (.nth/.first/.last).
-  let nth: number | undefined
-  const nthM = /\.nth\((\d+)\)/.exec(stmt)
-  if (nthM) nth = parseInt(nthM[1], 10)
-  else if (/\.first\(\)/.test(stmt)) nth = 0
-  else if (/\.last\(\)/.test(stmt)) nth = -1
-  const withNth = (t: Target): Target => (nth !== undefined ? { ...t, nth } : t)
+  const target: Target = { ...callToBase(leaf) }
+  if (leafNth !== undefined) target.nth = leafNth
 
-  switch (last.kind) {
-    case 'Text':
-    case 'AltText':
-      return withNth({ by: 'text', value: argValue(last.arg!) })
-    case 'Label':
-    case 'Placeholder':
-      return withNth({ by: 'label', value: argValue(last.arg!) })
-    case 'TestId':
-      return withNth({ by: 'css', value: `[data-testid="${argValue(last.arg!)}"]` })
-    case 'Role': {
-      if (last.name) {
-        const isRegex = last.name.trim().startsWith('/')
-        const value = isRegex ? regexNameToLiteral(fromRegex(last.name)) : argValue(last.name)
-        return withNth({ by: 'text', value })
-      }
-      return withNth({ by: 'css', value: `[role="${last.role}"]` })
-    }
-    case 'Locator': {
-      const sel = argValue(last.arg!)
-      if (/^(?:xpath=|\/\/|\.\/\/|\()/.test(sel)) {
-        return withNth({ by: 'xpath', value: sel.replace(/^xpath=/, '') })
-      }
-      if (/^#[\w-]+$/.test(sel)) return withNth({ by: 'id', value: sel.slice(1) })
-      return withNth({ by: 'css', value: sel })
-    }
+  // A preceding call is a CONTAINER scope (e.g. row/card) — preserve it.
+  if (calls.length >= 2) {
+    const scopeCall = calls[0]
+    const base = callToBase(scopeCall)
+    const within: Scope = { by: base.by, value: base.value }
+    if (base.role) within.role = base.role
+    const hasTextM = new RegExp(`hasText:\\s*(${QUOTED})`).exec(stmt)
+    if (hasTextM) within.hasText = argValue(hasTextM[1])
+    const scopeNth = nthAfter(stmt.slice(scopeCall.index, leaf.index), 0)
+    if (scopeNth !== undefined) within.nth = scopeNth
+    target.within = within
   }
-  return null
+  return target
 }
 
 const note = (text: string): Action => ({ type: 'note', text })
@@ -233,6 +271,21 @@ const toAction = (raw: string): Action => {
   if (/\.(?:click|dblclick)\(/.test(s)) {
     const target = parseTarget(s)
     if (target) return { type: 'click', target }
+  }
+
+  // Data extraction: "...textContent() // as name" / "...inputValue()".
+  const ext = /\.(textContent|innerText|inputValue)\(\)\s*(?:\/\/\s*as\s+(\w+))?\s*$/.exec(s)
+  if (ext) {
+    const target = parseTarget(s)
+    if (target) {
+      const action: Action = {
+        type: 'extract',
+        target,
+        prop: ext[1] === 'inputValue' ? 'value' : 'text',
+      }
+      if (ext[2]) action.as = ext[2]
+      return action
+    }
   }
 
   // Any other assertion (toContainText/toHaveValue/toBeChecked/toBeDisabled/

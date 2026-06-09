@@ -1,0 +1,14 @@
+{
+  "www.saucedemo.com|label:Username|": {
+    "how": "placeholder",
+    "hits": 0
+  },
+  "www.saucedemo.com|label:Password|": {
+    "how": "placeholder",
+    "hits": 0
+  },
+  "www.saucedemo.com|text:Login|button": {
+    "how": "role=button name",
+    "hits": 0
+  }
+}

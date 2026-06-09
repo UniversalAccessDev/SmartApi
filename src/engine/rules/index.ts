@@ -96,6 +96,7 @@ import {
   totalIsRule,
   pageShouldLoadRule,
   conditionalRule,
+  extractRule,
   allCheckboxesRule,
   bareLoginRule,
   confirmCancelRule,
@@ -115,6 +116,7 @@ export const RULES: StepRule[] = [
   // Control flow first — a conditional wraps an inner action, so it must claim
   // the step before any rule tries to match the "if X is visible" prefix.
   conditionalRule,
+  extractRule,
   // Quantified check/uncheck ("all the checkboxes") before the single check rule.
   allCheckboxesRule,
 

@@ -71,7 +71,10 @@ describe('Issue 3 — action-JSON output format', () => {
       target: { by: 'label', value: 'Username' },
       value: 'john',
     })
-    expect(r.actions).toContainEqual({ type: 'click', target: { by: 'text', value: 'Login' } })
+    expect(r.actions).toContainEqual({
+      type: 'click',
+      target: { by: 'text', value: 'Login', role: 'button' },
+    })
     expect(r.actions).toContainEqual({ type: 'wait', ms: 2000 })
     expect(r.actions).toContainEqual({ type: 'assertTitle', contains: 'Dashboard' })
   })
@@ -104,11 +107,19 @@ describe('Issue 3 — action-JSON output format', () => {
     expect(actions[1].type).toBe('note')
   })
 
-  it('scoped row action targets the inner control', () => {
+  it('scoped row action keeps the row scope in within', () => {
     const actions = toActions([
       "await page.getByRole('row', { name: 'Jane Doe' }).getByRole('button', { name: 'Edit' }).click()",
     ])
-    expect(actions[0]).toEqual({ type: 'click', target: { by: 'text', value: 'Edit' } })
+    expect(actions[0]).toEqual({
+      type: 'click',
+      target: {
+        by: 'text',
+        value: 'Edit',
+        role: 'button',
+        within: { by: 'text', value: 'Jane Doe', role: 'row' },
+      },
+    })
   })
 
   it('maps a conditional to conditionalclick (actions) and a guarded if (playwright)', async () => {
@@ -123,7 +134,32 @@ describe('Issue 3 — action-JSON output format', () => {
       | undefined
     expect(cc).toBeDefined()
     expect(cc!.guard).toEqual({ by: 'text', value: 'cookie banner' })
-    expect(cc!.click).toEqual({ type: 'click', target: { by: 'text', value: 'accept' } })
+    expect(cc!.click).toEqual({
+      type: 'click',
+      target: { by: 'text', value: 'accept', role: 'button' },
+    })
+  })
+
+  it('maps "read/extract <X>" to an extract action (with optional as-name)', async () => {
+    const a = await gen(['read the cart total'], { outputFormat: 'actions' })
+    expect(a.actions).toContainEqual({
+      type: 'extract',
+      target: { by: 'text', value: 'cart total' },
+      prop: 'text',
+    })
+    const b = await gen(['extract the order number as orderId'], { outputFormat: 'actions' })
+    expect(b.actions).toContainEqual({
+      type: 'extract',
+      target: { by: 'text', value: 'order number' },
+      prop: 'text',
+      as: 'orderId',
+    })
+  })
+
+  it('does NOT treat "capture a screenshot" as an extract', async () => {
+    const r = await gen(['capture a full page screenshot of the cart'], { outputFormat: 'actions' })
+    expect(r.actions.some((x) => x.type === 'screenshot')).toBe(true)
+    expect(r.actions.some((x) => x.type === 'extract')).toBe(false)
   })
 
   it('test-id and css/xpath locators map to the right "by"', () => {

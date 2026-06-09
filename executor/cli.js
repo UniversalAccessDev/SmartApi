@@ -30,7 +30,7 @@ async function main() {
     process.exit(1)
   }
   const t0 = Date.now()
-  const { results, data, finalShot, shots } = await execute(o.steps, o)
+  const { results, data, extracted, finalShot, shots } = await execute(o.steps, o)
 
   console.log('\n── Execution ──────────────────────────────────────────────')
   let lastStep = null
@@ -39,7 +39,9 @@ async function main() {
       console.log(`\n• ${r.step}`)
       lastStep = r.step
     }
-    console.log(`   ${ICON[r.status] || '?'} ${r.status.padEnd(8)} ${r.type.padEnd(14)} ${r.detail}`)
+    console.log(
+      `   ${ICON[r.status] || '?'} ${r.status.padEnd(8)} ${r.type.padEnd(14)} ${r.detail}`,
+    )
   }
 
   const tally = results.reduce((m, r) => ((m[r.status] = (m[r.status] || 0) + 1), m), {})
@@ -54,6 +56,11 @@ async function main() {
   if (data.firstTableRows.length) {
     console.log('   table   :')
     for (const row of data.firstTableRows) console.log('     ', row.join('  |  '))
+  }
+
+  if (extracted && Object.keys(extracted).length) {
+    console.log('\n── Extracted values (no Claude) ───────────────────────────')
+    for (const [k, v] of Object.entries(extracted)) console.log(`   ${k} = ${JSON.stringify(v)}`)
   }
 
   console.log('\n── Artifacts ──────────────────────────────────────────────')

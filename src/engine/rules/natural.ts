@@ -75,6 +75,38 @@ export const allCheckboxesRule: StepRule = {
   },
 }
 
+/**
+ * Data extraction: "read the cart total", "extract the order number as orderId",
+ * "get the value of the Email field". Emits a read statement the executor turns
+ * into an `extract` action that returns the captured value.
+ */
+export const extractRule: StepRule = {
+  name: 'extract',
+  description: 'Reads a value off the page: "read the <X>", "extract the <X> as <name>"',
+  apply(step) {
+    // "capture a screenshot" is a screenshot, not a data read.
+    if (/\b(?:screenshot|screen\s?shot|snapshot|video|screencast)\b/i.test(step)) return null
+    const m =
+      /^(?:read|extract|capture|grab|record)\s+(?:the\s+)?(?:(?:text|value|content|number|count|total|price|amount)\s+of\s+(?:the\s+)?)?(.+?)(?:\s+(?:as|into|to)\s+([A-Za-z_]\w*))?$/i.exec(
+        step.trim(),
+      )
+    if (!m) return null
+    const rawTarget = m[1]
+    const asName = m[2] || null
+    const isInput = /\b(?:field|input|textbox)$/i.test(rawTarget.trim()) || /\bvalue\b/i.test(step)
+    const name = cleanLabel(rawTarget)
+    if (!name) return null
+    const loc = isInput ? `getByLabel(${lit(name)})` : `getByText(${lit(name)})`
+    const prop = isInput ? 'inputValue' : 'textContent'
+    return {
+      lines: [`await page.${loc}.${prop}()${asName ? ` // as ${asName}` : ''}`],
+      strategies: [isInput ? 'label' : 'text'],
+      assumptions: [`Reads the ${isInput ? 'value' : 'text'} of "${name}".`],
+      confidence: 0.6,
+    }
+  },
+}
+
 /** "Confirm the deletion", "Cancel", "Click Yes". */
 export const confirmCancelRule: StepRule = {
   name: 'confirm-cancel',
