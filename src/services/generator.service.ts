@@ -1,6 +1,8 @@
 import { GenerateInput } from '../schemas/generate.schema'
 import { runRulesEngine } from '../engine/rulesEngine'
-import { buildTestFile } from '../engine/codeBuilder'
+import { buildTestFile, composeStatements } from '../engine/codeBuilder'
+import { toActions, Action } from '../engine/actions'
+import { slugify } from '../utils/slug'
 import { formatCode } from '../utils/formatCode'
 import { validateGeneratedCode, ValidationResult } from './validator.service'
 import { AnalyzedStep, StepContext } from '../engine/types'
@@ -22,6 +24,8 @@ export interface ConfidenceSummary {
 
 export interface GenerateResult {
   code: string
+  /** Structured action-JSON for non-Playwright executors (outputFormat: "actions"). */
+  actions: Action[]
   language: string
   locatorStrategy: string
   confidenceScore: number
@@ -80,6 +84,12 @@ export const generate = async (
   const code = await formatCode(rawCode)
   const validation = validateGeneratedCode(code)
 
+  // Structured action-JSON view of the same statements (shared goto dedup).
+  const actions = toActions(composeStatements(input.url, engine.bodyLines))
+  if (input.includeScreenshots) {
+    actions.push({ type: 'screenshot', name: slugify(input.testName) })
+  }
+
   const warnings = [...engine.warnings, ...validation.warnings]
   if (input.language === 'javascript') {
     warnings.unshift(
@@ -91,6 +101,7 @@ export const generate = async (
 
   return {
     code,
+    actions,
     language: 'typescript',
     locatorStrategy,
     confidenceScore: engine.confidence,

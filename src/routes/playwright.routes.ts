@@ -41,13 +41,16 @@ router.post(
     // Enrich the usage log for this call.
     res.locals.usage = { steps: parsed.data.steps.length, confidence: result.confidenceScore }
 
+    const outputFormat = parsed.data.outputFormat
     res.json({
       success: true,
       model: MODEL_NAME,
       tagline: TAGLINE,
       org: org || null,
       language: result.language,
-      code: result.code,
+      outputFormat,
+      // "actions" -> structured action-JSON; "playwright" (default) -> code string.
+      ...(outputFormat === 'actions' ? { actions: result.actions } : { code: result.code }),
       locatorStrategy: result.locatorStrategy,
       confidenceScore: result.confidenceScore,
       confidence: result.confidence,

@@ -61,6 +61,49 @@ export const openapiSpec = {
           language: { type: 'string', enum: ['typescript', 'javascript'], default: 'typescript' },
           includeScreenshots: { type: 'boolean', default: false },
           closeOverlaysWithEscape: { type: 'boolean', default: false },
+          outputFormat: {
+            type: 'string',
+            enum: ['playwright', 'actions'],
+            default: 'playwright',
+            description:
+              '"playwright" returns code (string). "actions" returns a structured action-JSON array for executors that do not run Playwright directly.',
+          },
+        },
+      },
+      Action: {
+        type: 'object',
+        description: 'One executor action. `note` carries un-mappable steps/assertions verbatim.',
+        properties: {
+          type: {
+            type: 'string',
+            enum: [
+              'goto',
+              'fill',
+              'click',
+              'hover',
+              'wait',
+              'press',
+              'screenshot',
+              'assertTitle',
+              'assertUrl',
+              'assertVisible',
+              'note',
+            ],
+          },
+          url: { type: 'string' },
+          ms: { type: 'integer' },
+          key: { type: 'string' },
+          name: { type: 'string' },
+          value: { type: 'string' },
+          contains: { type: 'string' },
+          text: { type: 'string' },
+          target: {
+            type: 'object',
+            properties: {
+              by: { type: 'string', enum: ['text', 'label', 'css', 'xpath', 'id'] },
+              value: { type: 'string' },
+            },
+          },
         },
       },
       AnalyzedStep: {
@@ -124,7 +167,16 @@ export const openapiSpec = {
           tagline: { type: 'string' },
           org: { type: 'string', nullable: true },
           language: { type: 'string', example: 'typescript' },
-          code: { type: 'string', description: 'Generated Playwright test file' },
+          outputFormat: { type: 'string', enum: ['playwright', 'actions'] },
+          code: {
+            type: 'string',
+            description: 'Generated Playwright test file (present when outputFormat=playwright)',
+          },
+          actions: {
+            type: 'array',
+            items: { $ref: '#/components/schemas/Action' },
+            description: 'Structured actions (present when outputFormat=actions)',
+          },
           locatorStrategy: { type: 'string', example: 'role-label-url' },
           confidenceScore: { type: 'number', format: 'float', example: 0.82 },
           confidence: { $ref: '#/components/schemas/ConfidenceSummary' },

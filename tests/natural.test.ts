@@ -83,7 +83,7 @@ describe('natural-language rules', () => {
       "await expect(page.getByText('$50')).toBeVisible()",
     ],
     ['page-should-load', 'The page should load', "await page.waitForLoadState('networkidle')"],
-    ['wait-seconds', 'Wait 3 seconds', "await page.waitForLoadState('networkidle')"],
+    ['wait-seconds', 'Wait 3 seconds', 'await page.waitForTimeout(3000)'],
     [
       'switch-toggle',
       'Switch on notifications',

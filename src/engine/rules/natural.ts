@@ -971,25 +971,34 @@ export const pageShouldLoadRule: StepRule = {
   },
 }
 
-/** "Wait 3 seconds" — translated to a load-state wait (never a hard timeout). */
+/**
+ * "Wait 2 seconds" -> an explicit fixed delay (page.waitForTimeout). Some legacy
+ * stacks (ICEfaces/JSF, slow AJAX) genuinely need a hard wait, so we honor the
+ * stated duration. Duration-less waits ("wait for the page to load") are handled
+ * by waitForLoadRule instead.
+ */
 export const waitSecondsRule: StepRule = {
   name: 'wait-seconds',
-  description: 'Discourages hard waits: "wait 3 seconds" -> a web-first load wait',
+  description: 'Explicit fixed wait: "wait 2 seconds" -> page.waitForTimeout(2000)',
   apply(step) {
-    if (
-      !/^wait\s+(?:for\s+)?\d+\s*(?:seconds?|secs?|s|minutes?|mins?|ms|milliseconds?)$/i.test(
+    const m =
+      /^wait\s+(?:for\s+)?(\d+)\s*(milliseconds?|ms|minutes?|mins?|seconds?|secs?|m|s)$/i.exec(
         step.trim(),
       )
-    ) {
-      return null
-    }
+    if (!m) return null
+    const n = parseInt(m[1], 10)
+    const unit = m[2].toLowerCase()
+    let ms: number
+    if (unit === 'ms' || unit.startsWith('millisecond')) ms = n
+    else if (unit === 'm' || unit.startsWith('min')) ms = n * 60_000
+    else ms = n * 1000 // seconds / secs / s
     return {
-      lines: [`await page.waitForLoadState('networkidle')`],
+      lines: [`await page.waitForTimeout(${ms})`],
       strategies: [],
       assumptions: [
-        'Fixed waits are an anti-pattern; replaced with a network-idle wait. Prefer "wait for <element>".',
+        'Explicit fixed wait preserved as requested; prefer "wait for <element>" where the app allows it.',
       ],
-      confidence: 0.55,
+      confidence: 0.62,
     }
   },
 }

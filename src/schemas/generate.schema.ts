@@ -25,6 +25,9 @@ export const generateSchema = z.object({
   language: z.enum(['typescript', 'javascript']).default('typescript'),
   includeScreenshots: z.boolean().default(false),
   closeOverlaysWithEscape: z.boolean().default(false),
+  // "playwright" (default) returns code; "actions" returns a structured action-JSON
+  // array for executors that don't run Playwright TypeScript directly.
+  outputFormat: z.enum(['playwright', 'actions']).default('playwright'),
 })
 
 export type GenerateInput = z.infer<typeof generateSchema>
