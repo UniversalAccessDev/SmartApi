@@ -22,6 +22,8 @@ router.post(
         success: false,
         model: MODEL_NAME,
         error: 'ValidationError',
+        code: 'VALIDATION_ERROR',
+        message: 'Request body failed validation; see issues for field-level details.',
         issues: parsed.error.issues.map((issue) => ({
           path: issue.path.join('.'),
           message: issue.message,
@@ -48,6 +50,7 @@ router.post(
       code: result.code,
       locatorStrategy: result.locatorStrategy,
       confidenceScore: result.confidenceScore,
+      confidence: result.confidence,
       assumptions: result.assumptions,
       warnings: result.warnings,
       validation: result.validation,

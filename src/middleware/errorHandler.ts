@@ -7,6 +7,7 @@ export const notFoundHandler = (req: Request, res: Response): void => {
     success: false,
     model: MODEL_NAME,
     error: 'Not Found',
+    code: 'NOT_FOUND',
     message: `No route matches ${req.method} ${req.originalUrl}`,
   })
 }
@@ -26,6 +27,7 @@ export const errorHandler = (
     success: false,
     model: MODEL_NAME,
     error: 'Internal Server Error',
+    code: 'INTERNAL_ERROR',
     message,
   })
 }

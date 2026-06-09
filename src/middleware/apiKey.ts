@@ -37,6 +37,7 @@ export const createApiKeyGuard = (keys: string[]) => {
         success: false,
         model: MODEL_NAME,
         error: 'Unauthorized',
+        code: 'UNAUTHORIZED',
         message: 'Missing or invalid API key. Send your key in the "x-api-key" request header.',
       })
       return

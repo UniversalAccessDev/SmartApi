@@ -51,7 +51,22 @@ describe('POST /api/v1/playwright/generate', () => {
     expect(res.status).toBe(400)
     expect(res.body.success).toBe(false)
     expect(res.body.error).toBe('ValidationError')
+    expect(res.body.code).toBe('VALIDATION_ERROR')
     expect(res.body.issues.length).toBeGreaterThan(0)
+  })
+
+  it('returns a confidence summary and per-step explainability', async () => {
+    const res = await request(app).post('/api/v1/playwright/generate').send(validBody)
+    expect(res.status).toBe(200)
+    expect(res.body.confidence).toBeDefined()
+    expect(['high', 'medium', 'low']).toContain(res.body.confidence.level)
+    expect(res.body.confidence.breakdown).toHaveProperty('high')
+    expect(typeof res.body.confidence.note).toBe('string')
+    const step = res.body.meta.stepsAnalyzed[0]
+    expect(['high', 'medium', 'low']).toContain(step.level)
+    expect(typeof step.rationale).toBe('string')
+    expect(Array.isArray(step.alternatives)).toBe(true)
+    expect(Array.isArray(step.code)).toBe(true)
   })
 
   it('rejects too many steps (input cap) with 400', async () => {
@@ -157,10 +172,28 @@ describe('usage endpoint', () => {
 })
 
 describe('unknown routes', () => {
-  it('returns a 404 envelope', async () => {
+  it('returns a 404 envelope with a stable code', async () => {
     const res = await request(app).get('/does-not-exist')
     expect(res.status).toBe(404)
     expect(res.body.success).toBe(false)
     expect(res.body.error).toBe('Not Found')
+    expect(res.body.code).toBe('NOT_FOUND')
+  })
+})
+
+describe('API docs', () => {
+  it('serves a valid OpenAPI 3 spec at /openapi.json', async () => {
+    const res = await request(app).get('/openapi.json')
+    expect(res.status).toBe(200)
+    expect(res.body.openapi).toMatch(/^3\./)
+    expect(res.body.paths['/api/v1/playwright/generate']).toBeDefined()
+    expect(res.body.components.schemas.GenerateResponse).toBeDefined()
+  })
+
+  it('serves interactive docs HTML at /docs', async () => {
+    const res = await request(app).get('/docs')
+    expect(res.status).toBe(200)
+    expect(res.headers['content-type']).toContain('text/html')
+    expect(res.text).toContain('redoc')
   })
 })

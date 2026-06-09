@@ -49,11 +49,21 @@ export interface StepRule {
   apply(step: string, ctx: StepContext): RuleOutput | null
 }
 
-/** Per-step diagnostic info returned in the response meta. */
+/** Per-step diagnostic + explainability info returned in the response meta. */
 export interface AnalyzedStep {
   step: string
   rule: string | null
   confidence: number
+  /** Confidence band for the score: high (>=0.8) / medium (>=0.6) / low. */
+  level: 'high' | 'medium' | 'low'
+  /** Primary locator strategy used for this step (null when unmapped). */
+  strategy: LocatorStrategy | null
+  /** The Playwright statement(s) generated for this step. */
+  code: string[]
+  /** One-line explanation of why this locator/action was chosen. */
+  rationale: string
+  /** Concrete fallback locators to try if the primary one does not match. */
+  alternatives: string[]
 }
 
 /** Aggregate result of running the engine over all steps. */

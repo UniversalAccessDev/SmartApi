@@ -1,5 +1,6 @@
 import { EngineResult, LocatorStrategy, RuleOutput, StepContext } from './types'
 import { RULES } from './rules'
+import { explainStep, levelFor } from './explain'
 
 /** Canonical ordering for rendering the aggregate locatorStrategy label. */
 const STRATEGY_ORDER: LocatorStrategy[] = [
@@ -108,7 +109,16 @@ export const runRulesEngine = (steps: string[], ctx: StepContext): EngineResult 
 
     if (!matched) {
       bodyLines.push(`// TODO: Smart API could not map this step -> "${step}"`)
-      analyzed.push({ step, rule: null, confidence: 0.1 })
+      analyzed.push({
+        step,
+        rule: null,
+        confidence: 0.1,
+        level: 'low',
+        strategy: null,
+        code: [],
+        rationale: 'No rule matched this phrasing; left as a TODO for manual translation.',
+        alternatives: [],
+      })
       confidences.push(0.1)
       unmatchedSteps.push(step)
       warnings.push(`Step could not be mapped to a Playwright action: "${step}"`)
@@ -119,7 +129,22 @@ export const runRulesEngine = (steps: string[], ctx: StepContext): EngineResult 
     bodyLines.push(...output.lines)
     output.strategies.forEach((s) => strategies.add(s))
     output.assumptions.forEach((a) => assumptions.add(a))
-    analyzed.push({ step, rule: name, confidence: output.confidence })
+    const { rationale, alternatives } = explainStep(
+      output.lines,
+      output.strategies,
+      name,
+      output.assumptions,
+    )
+    analyzed.push({
+      step,
+      rule: name,
+      confidence: output.confidence,
+      level: levelFor(output.confidence),
+      strategy: output.strategies[0] ?? null,
+      code: output.lines,
+      rationale,
+      alternatives,
+    })
     confidences.push(output.confidence)
   }
 

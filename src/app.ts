@@ -1,6 +1,7 @@
 import express, { Application } from 'express'
 import cors from 'cors'
 import healthRoutes from './routes/health.routes'
+import docsRoutes from './routes/docs.routes'
 import playwrightRoutes from './routes/playwright.routes'
 import kbRoutes from './routes/kb.routes'
 import usageRoutes from './routes/usage.routes'
@@ -31,6 +32,8 @@ export const createApp = (): Application => {
       tagline: TAGLINE,
       endpoints: {
         health: 'GET /health',
+        docs: 'GET /docs',
+        openapi: 'GET /openapi.json',
         generate: `POST ${API_PREFIX}/playwright/generate`,
         usage: `GET ${API_PREFIX}/usage`,
       },
@@ -38,6 +41,8 @@ export const createApp = (): Application => {
   })
 
   app.use('/', healthRoutes)
+  // Public API docs (OpenAPI JSON + Redoc) — no key required for discovery.
+  app.use('/', docsRoutes)
   // Protect the generate API with an API key (no-op in open mode). /health and
   // the root descriptor stay public so monitoring and discovery keep working.
   app.use(`${API_PREFIX}/playwright`, requireApiKey, playwrightRoutes)
