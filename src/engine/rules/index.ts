@@ -86,6 +86,9 @@ import {
   forgotPasswordRule,
   incrementRule,
   sliderRule,
+  datePickerRule,
+  menuItemRule,
+  otpRule,
   selectAllRule,
   deleteRowRule,
   couponRule,
@@ -166,12 +169,15 @@ export const RULES: StepRule[] = [
   waitSecondsRule,
   waitForRule,
 
-  // Forms — placeholder fill before generic label fill.
+  // Forms — specialized widgets + placeholder fill before generic label fill.
+  otpRule,
   placeholderFillRule,
   fillRule,
   tabRule,
   radioForRule,
   radioRule,
+  datePickerRule,
+  menuItemRule,
   selectRule,
   checkRule,
   uncheckRule,

@@ -97,6 +97,72 @@ describe('quality gaps — new coverage', () => {
   })
 })
 
+describe('quality gaps — widgets, roles & scoping', () => {
+  it('scopes a row action (leading form)', () => {
+    expect(run('In the row for Jane Doe, click Edit')).toBe(
+      "await page.getByRole('row', { name: 'Jane Doe' }).getByRole('button', { name: 'Edit' }).click()",
+    )
+  })
+
+  it('passive "should be disabled" maps to toBeDisabled', () => {
+    expect(run('The "Submit" button should be disabled')).toBe(
+      "await expect(page.getByRole('button', { name: 'Submit' })).toBeDisabled()",
+    )
+  })
+
+  it('count assertion with a non-role noun + "exactly"', () => {
+    expect(run('Verify that exactly 3 products are displayed')).toBe(
+      "await expect(page.getByRole('listitem')).toHaveCount(3)",
+    )
+  })
+
+  it('toggle switch on -> getByRole(switch).check()', () => {
+    expect(run('Toggle the Dark Mode switch on')).toBe(
+      "await page.getByRole('switch', { name: 'Dark Mode' }).check()",
+    )
+  })
+
+  it('tab activation -> role=tab', () => {
+    expect(run('Open the Reports tab')).toBe(
+      "await page.getByRole('tab', { name: 'Reports' }).click()",
+    )
+  })
+
+  it('menu pick -> menuitem (not selectOption)', () => {
+    expect(run('Select Settings from the profile menu')).toBe(
+      "await page.getByRole('menuitem', { name: 'Settings' }).click()",
+    )
+  })
+
+  it('multi-select -> selectOption array', () => {
+    expect(run('Select Red, Green and Blue from Colors')).toBe(
+      "await page.getByLabel('Colors').selectOption(['Red', 'Green', 'Blue'])",
+    )
+  })
+
+  it('slider to the right -> press End', () => {
+    expect(run('Drag the brightness slider all the way to the right')).toBe(
+      "await page.getByRole('slider', { name: 'brightness' }).press('End')",
+    )
+  })
+
+  it('OTP code -> tolerant label fill', () => {
+    expect(run('Enter the OTP 123456')).toBe(
+      "await page.getByLabel(/otp|code|verification|pin/i).fill('123456')",
+    )
+  })
+
+  it('column header click -> role=columnheader', () => {
+    expect(run('Click the Date column header')).toBe(
+      "await page.getByRole('columnheader', { name: 'Date' }).click()",
+    )
+  })
+
+  it('redirect assertion -> toHaveURL', () => {
+    expect(run('Verify I get redirected to /login')).toBe("await expect(page).toHaveURL('/login')")
+  })
+})
+
 describe('quality gaps — honest non-mapping', () => {
   it('does NOT guess at conditional control flow', () => {
     const r = runRulesEngine(['If the popup appears, close it'], ctx)

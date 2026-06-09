@@ -184,14 +184,36 @@ export const selectRule: StepRule = {
   description:
     'Selects a dropdown option: "select <option> from <field>", "choose <option> in <field>"',
   apply(step) {
+    const s = step.trim()
+    // A menu / listbox / calendar / combobox is NOT a native <select> — let the
+    // dedicated menu-item / date-picker rules handle those container words.
+    if (/\b(?:menu|suggestions?|autocomplete|listbox|calendar|date\s?picker)$/i.test(s)) return null
+
     const match =
-      /^(?:select|choose|pick)\s+(.+?)\s+(?:from|in)\s+(?:the\s+)?(.+?)(?:\s+(?:dropdown|select|list|menu))?$/i.exec(
-        step.trim(),
+      /^(?:select|choose|pick)\s+(.+?)\s+(?:from|in)\s+(?:the\s+)?(.+?)(?:\s+(?:dropdown|drop-down|select|list))?$/i.exec(
+        s,
       )
     if (!match) return null
 
-    const option = cleanValue(match[1])
     const field = cleanLabel(match[2])
+    // Multi-select: "select Red, Green and Blue from Colors" -> selectOption([...]).
+    const rawOption = match[1].trim()
+    if (/,|\s+and\s+/i.test(rawOption)) {
+      const values = rawOption
+        .split(/\s*,\s*|\s+and\s+/i)
+        .map((v) => cleanValue(v))
+        .filter(Boolean)
+      if (values.length > 1) {
+        const arr = `[${values.map((v) => lit(v)).join(', ')}]`
+        return {
+          lines: [`await page.getByLabel(${lit(field)}).selectOption(${arr})`],
+          strategies: ['label'],
+          assumptions: [`Assumed "${field}" is a multi-select; passed ${values.length} values.`],
+          confidence: 0.62,
+        }
+      }
+    }
+    const option = cleanValue(rawOption)
     return {
       lines: [`await page.getByLabel(${lit(field)}).selectOption(${lit(option)})`],
       strategies: ['label'],

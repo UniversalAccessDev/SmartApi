@@ -237,6 +237,7 @@ const ROLE_SUFFIXES: Array<[RegExp, string]> = [
   [/\s+checkbox$/i, 'checkbox'],
   [/\s+radio(?:\s+button)?$/i, 'radio'],
   [/\s+(?:menu\s?item|menuitem|submenu(?:\s+item)?)$/i, 'menuitem'],
+  [/\s+(?:column\s+header|column\s+heading)$/i, 'columnheader'],
   [/\s+option$/i, 'option'],
 ]
 

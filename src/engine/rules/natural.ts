@@ -621,10 +621,18 @@ export const socialLoginRule: StepRule = {
   name: 'social-login',
   description: 'Social/SSO login: "sign in with Google", "continue with Apple"',
   apply(step) {
+    const s = step.trim()
+    const PROVIDER = 'google|apple|facebook|github|microsoft|twitter|linkedin|gitlab|slack|okta|sso'
     const m =
-      /^(?:sign in|log in|continue|signup|sign up)\s+with\s+(google|apple|facebook|github|microsoft|twitter|linkedin|gitlab|slack|okta|sso|google account|apple id)$/i.exec(
-        step.trim(),
-      )
+      new RegExp(
+        `^(?:sign in|log in|continue|signup|sign up|register|authenticate)\\s+(?:with|via|using)\\s+(?:my\\s+|your\\s+|an?\\s+)?(${PROVIDER})(?:\\s+(?:account|id))?$`,
+        'i',
+      ).exec(s) ||
+      // "use Google to sign in", "use my Google account"
+      new RegExp(
+        `^use\\s+(?:my\\s+|your\\s+)?(${PROVIDER})(?:\\s+account)?\\s+to\\s+(?:sign|log)\\s?in$`,
+        'i',
+      ).exec(s)
     if (!m) return null
     const provider = m[1].trim()
     return {
@@ -710,18 +718,124 @@ export const incrementRule: StepRule = {
 /** "Move the slider to 50", "set the slider to 75". */
 export const sliderRule: StepRule = {
   name: 'slider',
-  description: 'Sets a slider: "move/set the slider to <n>"',
+  description:
+    'Sets a slider: "move/set the <name> slider to <n>%", "drag the slider to the right"',
   apply(step) {
-    const m = /^(?:move|set|drag)\s+(?:the\s+)?(?:.+?\s+)?slider\s+to\s+(\d+)$/i.exec(step.trim())
+    const s = step.trim()
+    const sliderLoc = (name: string): string =>
+      name ? `page.getByRole('slider', { name: ${lit(name)} })` : `page.getByRole('slider')`
+
+    // Directional: "drag the brightness slider all the way to the right"
+    const dir =
+      /^(?:move|set|drag|slide|adjust|push)\s+(?:the\s+)?(.+?)\s+slider\s+(?:all\s+the\s+way\s+)?to\s+(?:the\s+)?(right|max(?:imum)?|end|top|left|min(?:imum)?|start|beginning|bottom)$/i.exec(
+        s,
+      )
+    if (dir) {
+      const toMax = /right|max|end|top/i.test(dir[2])
+      return {
+        lines: [`await ${sliderLoc(cleanLabel(dir[1]))}.press(${lit(toMax ? 'End' : 'Home')})`],
+        strategies: ['role'],
+        assumptions: [`Moved the slider to its ${toMax ? 'maximum' : 'minimum'} via the keyboard.`],
+        confidence: 0.55,
+      }
+    }
+    // Numeric/percent: "move the Volume slider to 75%", "set slider to 50"
+    const num =
+      /^(?:move|set|drag|slide|adjust|change)\s+(?:the\s+)?(.*?)\s*slider\s+to\s+(\d+)\s*%?$/i.exec(
+        s,
+      )
+    if (num) {
+      return {
+        lines: [`await ${sliderLoc(cleanLabel(num[1]))}.fill(${lit(num[2])})`],
+        strategies: ['role'],
+        assumptions: ['Assumed a range slider; scope the locator if there are several.'],
+        confidence: 0.58,
+      }
+    }
+    return null
+  },
+}
+
+/**
+ * Date/time picker: "pick June 15 from the date picker", "select tomorrow in the
+ * Check-in calendar". Routed away from selectRule (a calendar is not a <select>):
+ * opens the picker, then clicks the day cell.
+ */
+export const datePickerRule: StepRule = {
+  name: 'date-picker',
+  description: 'Picks a date: "pick <date> from the <field> date picker/calendar"',
+  apply(step) {
+    const m =
+      /^(?:pick|select|choose|set|enter)\s+(.+?)\s+(?:from|in|on|for)\s+(?:the\s+)?(.+?)\s+(?:date\s?picker|calendar|datepicker|date\s+field)$/i.exec(
+        step.trim(),
+      )
     if (!m) return null
+    const date = cleanValue(m[1].replace(/['’]s\s+date$/i, '').replace(/\s+date$/i, ''))
+    const field = cleanLabel(m[2])
     return {
-      lines: [`await page.getByRole('slider').fill(${lit(m[1])})`],
+      lines: [
+        `await page.getByLabel(${lit(field)}).click()`,
+        `await page.getByRole('gridcell', { name: ${lit(date)} }).click()`,
+      ],
+      strategies: ['label', 'role'],
+      assumptions: [
+        `Opened the "${field}" picker and clicked the "${date}" day cell; for relative dates (today/tomorrow) compute the concrete date in the test.`,
+      ],
+      confidence: 0.5,
+    }
+  },
+}
+
+/**
+ * Menu/listbox pick: "select Settings from the profile menu", "choose New York
+ * from the suggestions". A menu/listbox is not a native <select>, so route to a
+ * menuitem/option click instead of selectOption.
+ */
+export const menuItemRule: StepRule = {
+  name: 'menu-item',
+  description: 'Picks a menu/listbox item: "select <item> from the <name> menu/suggestions"',
+  apply(step) {
+    const m =
+      /^(?:select|choose|pick|click(?:\s+on)?|tap)\s+(.+?)\s+(?:from|in)\s+(?:the\s+)?(.+?)\s+(?:menu|context\s+menu|dropdown\s+menu|suggestions?|autocomplete|listbox|options?\s+list)$/i.exec(
+        step.trim(),
+      )
+    if (!m) return null
+    const item = cleanValue(m[1])
+    const isOption = /suggestion|autocomplete|listbox|option/i.test(step)
+    const role = isOption ? 'option' : 'menuitem'
+    return {
+      lines: [`await page.getByRole('${role}', { name: ${lit(item)} }).click()`],
       strategies: ['role'],
-      assumptions: ['Assumed a single range slider; scope the locator if there are several.'],
+      assumptions: [`Assumed "${item}" is a ${role} (open the menu/list first if needed).`],
+      confidence: 0.6,
+    }
+  },
+}
+
+/**
+ * OTP / 2FA / verification code: "enter the OTP 123456", "type the 6-digit code
+ * 123456". Fills the code field via a tolerant label locator.
+ */
+export const otpRule: StepRule = {
+  name: 'otp-code',
+  description: 'Enters an OTP/verification code: "enter the OTP <code>"',
+  apply(step) {
+    const m =
+      /^(?:enter|type|input|fill(?:\s+in)?|key\s+in)\s+(?:the\s+)?(?:\d+[\s-]?digit\s+)?(?:otp|one[\s-]?time\s+(?:code|password|pin)|verification\s+code|2fa\s+code|security\s+code|auth(?:entication)?\s+code|confirmation\s+code|code|pin)\s+(?:is\s+|of\s+|:\s*)?["']?(\d[\d\s-]{2,9}\d)["']?/i.exec(
+        step.trim(),
+      )
+    if (!m) return null
+    const code = m[1].replace(/[\s-]/g, '') // join "123 456" / "123-456"
+    return {
+      lines: [`await page.getByLabel(/otp|code|verification|pin/i).fill(${lit(code)})`],
+      strategies: ['label'],
+      assumptions: ['Assumed a single OTP/code input; for per-digit boxes, fill each separately.'],
       confidence: 0.58,
     }
   },
 }
+
+// ─── Action naturalizations ──────────────────────────────────────────────────
 
 /** "Select all rows", "select all items", "select all". */
 export const selectAllRule: StepRule = {
