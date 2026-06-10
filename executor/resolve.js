@@ -1,5 +1,7 @@
 'use strict'
 
+const { domResolve } = require('./domResolve')
+
 /**
  * Deterministic, Claude-free element resolution.
  *
@@ -134,6 +136,11 @@ async function resolve(page, target, timeout = 3500, hint) {
     }
     await page.waitForTimeout(150)
   }
+
+  // Deep fallback — deterministic "vision" by DOM scoring (Claude-free).
+  // This is the long-tail catch the simple cascade can't reach.
+  const scored = await domResolve(page, target, Math.min(timeout, 3000))
+  if (scored) return { ...scored, scoped: false }
   return null
 }
 
