@@ -38,14 +38,31 @@ export interface UsageSummary {
   generateCalls: number
   avgDurationMs: number
   avgSteps: number | null
+  /** Avg confidence across generate calls (the real quality signal). */
+  avgConfidence: number | null
+  /** Non-generate / 404 / scanner traffic (bot noise) — for context. */
+  noiseCalls: number
   byEndpoint: Array<{ endpoint: string; calls: number }>
   byOrg: Array<{ org: string; calls: number }>
   byDay: Array<{ day: string; calls: number }>
+  /** Generate calls grouped by org — the meaningful per-customer usage. */
+  generateByOrg: Array<{ org: string; calls: number; avgConfidence: number | null }>
+  /** Generate calls per day (last 14). */
+  generateByDay: Array<{ day: string; calls: number }>
   recent: Array<{
     ts: string
     method: string
     path: string
     org: string | null
+    status: number
+    durationMs: number
+  }>
+  /** Recent generate calls only (the signal, not the bot noise). */
+  recentGenerate: Array<{
+    ts: string
+    org: string | null
+    steps: number | null
+    confidence: number | null
     status: number
     durationMs: number
   }>
@@ -129,9 +146,17 @@ export const getUsageSummary = (db: KbDatabase, limit = 25): UsageSummary => {
   const gen = num(
     one(`SELECT COUNT(*) c FROM usage_log WHERE path = '/api/v1/playwright/generate'`)?.c,
   )
-  const avgDur = Math.round(num(one(`SELECT AVG(duration_ms) a FROM usage_log`)?.a))
+  const GEN = `path = '/api/v1/playwright/generate'`
+  const avgDur = Math.round(num(one(`SELECT AVG(duration_ms) a FROM usage_log WHERE ${GEN}`)?.a))
   const avgStepsRow = one(`SELECT AVG(steps) a FROM usage_log WHERE steps IS NOT NULL`)
   const avgSteps = avgStepsRow?.a == null ? null : Math.round(num(avgStepsRow.a) * 10) / 10
+  const avgConfRow = one(`SELECT AVG(confidence) a FROM usage_log WHERE confidence IS NOT NULL`)
+  const avgConfidence = avgConfRow?.a == null ? null : Math.round(num(avgConfRow.a) * 100) / 100
+  const noise = num(
+    one(
+      `SELECT COUNT(*) c FROM usage_log WHERE status = 404 OR path = '/' OR path LIKE '%.env%' OR path LIKE '%.git%' OR path LIKE '%favicon%' OR path LIKE '%robots%' OR path LIKE '%/owa%' OR path LIKE '%.php'`,
+    )?.c,
+  )
 
   return {
     totalCalls: total,
@@ -139,6 +164,29 @@ export const getUsageSummary = (db: KbDatabase, limit = 25): UsageSummary => {
     generateCalls: gen,
     avgDurationMs: avgDur,
     avgSteps,
+    avgConfidence,
+    noiseCalls: noise,
+    generateByOrg: all(
+      `SELECT COALESCE(org,'(direct/test)') org, COUNT(*) calls, AVG(confidence) conf FROM usage_log WHERE ${GEN} GROUP BY org ORDER BY calls DESC`,
+    ).map((r) => ({
+      org: String(r.org),
+      calls: num(r.calls),
+      avgConfidence: r.conf == null ? null : Math.round(num(r.conf) * 100) / 100,
+    })),
+    generateByDay: all(
+      `SELECT substr(ts,1,10) day, COUNT(*) calls FROM usage_log WHERE ${GEN} GROUP BY day ORDER BY day DESC LIMIT 14`,
+    ).map((r) => ({ day: String(r.day), calls: num(r.calls) })),
+    recentGenerate: all(
+      `SELECT ts, org, steps, confidence, status, duration_ms FROM usage_log WHERE ${GEN} ORDER BY id DESC LIMIT ?`,
+      limit,
+    ).map((r) => ({
+      ts: String(r.ts),
+      org: r.org == null ? null : String(r.org),
+      steps: r.steps == null ? null : num(r.steps),
+      confidence: r.confidence == null ? null : num(r.confidence),
+      status: num(r.status),
+      durationMs: num(r.duration_ms),
+    })),
     byEndpoint: all(
       `SELECT method || ' ' || path AS endpoint, COUNT(*) calls FROM usage_log GROUP BY endpoint ORDER BY calls DESC`,
     ).map((r) => ({ endpoint: String(r.endpoint), calls: num(r.calls) })),
