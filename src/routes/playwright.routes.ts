@@ -5,6 +5,7 @@ import { asyncHandler } from '../middleware/asyncHandler'
 import { MODEL_NAME, TAGLINE } from '../constants'
 import { db } from '../kb/db'
 import { getEntries, makeResolver } from '../kb/kb.service'
+import { recordWeakSteps } from '../usage/usage.service'
 
 const router = Router()
 
@@ -40,6 +41,8 @@ router.post(
 
     // Enrich the usage log for this call.
     res.locals.usage = { steps: parsed.data.steps.length, confidence: result.confidenceScore }
+    // Diagnostics: log unmapped/weak steps so we can see what to fix per org.
+    recordWeakSteps(db, org || null, result.meta.stepsAnalyzed)
 
     const outputFormat = parsed.data.outputFormat
     res.json({

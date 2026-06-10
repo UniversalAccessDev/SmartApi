@@ -53,6 +53,68 @@ export interface UsageSummary {
 
 const num = (v: unknown, d = 0): number => (typeof v === 'number' && Number.isFinite(v) ? v : d)
 
+/** One analyzed step (subset of the engine's AnalyzedStep). */
+export interface WeakStep {
+  step: string
+  rule: string | null
+  confidence: number
+}
+
+/**
+ * Record steps that failed or mapped weakly so we can see WHAT to fix. Logs any
+ * step that is unmapped (rule === null) or below the confidence floor. Best-effort.
+ */
+export const recordWeakSteps = (
+  db: KbDatabase,
+  org: string | null,
+  analyzed: WeakStep[],
+  floor = 0.6,
+): void => {
+  try {
+    const ts = new Date().toISOString()
+    const ins = db.prepare(
+      `INSERT INTO unmapped_log (ts, org, step, rule, confidence) VALUES (?, ?, ?, ?, ?)`,
+    )
+    const tx = db.transaction((rows: WeakStep[]) => {
+      for (const a of rows) {
+        if (a.rule === null || a.confidence < floor) ins.run(ts, org, a.step, a.rule, a.confidence)
+      }
+    })
+    tx(analyzed)
+  } catch {
+    /* logging must never break a request */
+  }
+}
+
+/** Most-frequent failing/weak phrasings, optionally scoped to one org. */
+export const getUnmapped = (db: KbDatabase, opts: { org?: string; limit?: number } = {}) => {
+  const where = opts.org ? `WHERE org = ?` : ''
+  const args = opts.org ? [opts.org] : []
+  const limit = opts.limit ?? 30
+  const g = (sql: string, ...a: unknown[]) => db.prepare(sql).get(...a) as Record<string, unknown>
+  const all = (sql: string, ...a: unknown[]) =>
+    db.prepare(sql).all(...a) as Record<string, unknown>[]
+  return {
+    total: num(g(`SELECT COUNT(*) c FROM unmapped_log ${where}`, ...args)?.c),
+    unmapped: num(
+      g(
+        `SELECT COUNT(*) c FROM unmapped_log ${where}${where ? ' AND' : ' WHERE'} rule IS NULL`,
+        ...args,
+      )?.c,
+    ),
+    topPhrasings: all(
+      `SELECT step, COUNT(*) count, rule, MIN(confidence) confidence FROM unmapped_log ${where} GROUP BY lower(step) ORDER BY count DESC LIMIT ?`,
+      ...args,
+      limit,
+    ),
+    recent: all(
+      `SELECT ts, org, step, rule, confidence FROM unmapped_log ${where} ORDER BY id DESC LIMIT ?`,
+      ...args,
+      limit,
+    ),
+  }
+}
+
 /** Aggregate usage for the dashboard/summary endpoint. */
 export const getUsageSummary = (db: KbDatabase, limit = 25): UsageSummary => {
   const one = (sql: string, ...args: unknown[]) =>

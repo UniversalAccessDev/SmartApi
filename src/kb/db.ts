@@ -44,6 +44,17 @@ export const openDb = (file: string): KbDatabase => {
       confidence  REAL
     );
     CREATE INDEX IF NOT EXISTS idx_usage_ts ON usage_log(ts);
+
+    CREATE TABLE IF NOT EXISTS unmapped_log (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      ts         TEXT NOT NULL,
+      org        TEXT,
+      step       TEXT NOT NULL,
+      rule       TEXT,
+      confidence REAL
+    );
+    CREATE INDEX IF NOT EXISTS idx_unmapped_ts ON unmapped_log(ts);
+    CREATE INDEX IF NOT EXISTS idx_unmapped_org ON unmapped_log(org);
   `)
   return db
 }
