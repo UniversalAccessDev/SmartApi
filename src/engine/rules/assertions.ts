@@ -616,6 +616,7 @@ const COUNT_ROLE: Record<string, string> = {
   rows: 'row',
   items: 'listitem',
   'list items': 'listitem',
+  'line items': 'listitem',
   options: 'option',
   links: 'link',
   buttons: 'button',
@@ -648,7 +649,7 @@ export const assertCountRule: StepRule = {
     }
 
     const hasN =
-      /^(?:(?:verify|assert|ensure|confirm|check)\s+(?:that\s+)?)?the\s+(?:table|list|grid)\s+(?:has|should\s+have|should\s+contain|contains)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(rows|items|cells|options)$/i.exec(
+      /^(?:(?:verify|assert|ensure|confirm|check|make sure)\s+(?:that\s+)?)?the\s+(?:table|list|grid|cart|basket|bag|results?(?:\s+list)?|menu)\s+(?:has|should\s+have|should\s+contain|contains)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+(rows|items|line\s+items|products|cells|options|entries|results)$/i.exec(
         s,
       )
     if (hasN) {

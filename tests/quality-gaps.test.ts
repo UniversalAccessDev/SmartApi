@@ -161,6 +161,15 @@ describe('quality gaps — widgets, roles & scoping', () => {
   it('redirect assertion -> toHaveURL', () => {
     expect(run('Verify I get redirected to /login')).toBe("await expect(page).toHaveURL('/login')")
   })
+
+  it('"cart/basket has N items" -> toHaveCount (from the usage dashboard)', () => {
+    expect(run('Verify the cart has 3 items')).toBe(
+      "await expect(page.getByRole('listitem')).toHaveCount(3)",
+    )
+    expect(run('Verify the basket has 5 products')).toBe(
+      "await expect(page.getByRole('listitem')).toHaveCount(5)",
+    )
+  })
 })
 
 describe('quality gaps — honest non-mapping', () => {
