@@ -20,10 +20,10 @@ function translate(step) {
 }
 
 /** Resolve a target with selector-learning: try the cached strategy first. */
-async function resolveLearned(page, target, cache, timeout) {
+async function resolveLearned(page, target, cache, timeout, intent) {
   const key = cache && cache.keyOf(cache.hostOf(page.url()), target)
   const hint = cache && cache.get(key)
-  const found = await resolve(page, target, timeout, hint)
+  const found = await resolve(page, target, timeout, hint, intent)
   if (found && cache) cache.set(key, found.how)
   return found
 }
@@ -43,6 +43,10 @@ async function runAction(page, action, rec, cache) {
         break
       case 'press':
         await page.keyboard.press(action.key)
+        // A key like Enter often submits/navigates — let any resulting navigation
+        // start and settle before the next step reads the page.
+        await page.waitForLoadState('load', { timeout: 8000 }).catch(() => {})
+        await page.waitForTimeout(300)
         r.detail = action.key
         break
       case 'screenshot': {
@@ -58,8 +62,9 @@ async function runAction(page, action, rec, cache) {
         // re-renders (Playwright already auto-waits + scrolls into view).
         let found = null
         let lastErr = null
+        const intent = action.type === 'fill' ? 'fill' : 'click'
         for (let attempt = 0; attempt < 2; attempt++) {
-          found = await resolveLearned(page, action.target, cache, ACTION_TIMEOUT)
+          found = await resolveLearned(page, action.target, cache, ACTION_TIMEOUT, intent)
           if (!found) {
             lastErr = `element not found: ${action.target.by}="${action.target.value}"`
             await page.waitForTimeout(300)
@@ -95,14 +100,30 @@ async function runAction(page, action, rec, cache) {
         break
       }
       case 'assertTitle': {
-        const title = await page.title()
-        const ok = title.toLowerCase().includes(String(action.contains).toLowerCase())
+        // Poll: the title may still be settling after a navigation (e.g. search submit).
+        const want = String(action.contains).toLowerCase()
+        let title = ''
+        const deadline = Date.now() + 6000
+        do {
+          title = (await page.title().catch(() => '')) || ''
+          if (title.toLowerCase().includes(want)) break
+          await page.waitForTimeout(250)
+        } while (Date.now() < deadline)
+        const ok = title.toLowerCase().includes(want)
         r.status = ok ? 'ok' : 'failed'
         r.detail = `title="${title}" contains "${action.contains}"=${ok}`
         break
       }
       case 'assertUrl': {
-        const ok = page.url().includes(action.contains)
+        const want = String(action.contains)
+        let url = ''
+        const deadline = Date.now() + 6000
+        do {
+          url = page.url()
+          if (url.includes(want)) break
+          await page.waitForTimeout(250)
+        } while (Date.now() < deadline)
+        const ok = url.includes(want)
         r.status = ok ? 'ok' : 'failed'
         r.detail = `url contains "${action.contains}"=${ok}`
         break
