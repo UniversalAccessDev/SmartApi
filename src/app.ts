@@ -9,6 +9,8 @@ import { usageLogger } from './middleware/usageLogger'
 import { db } from './kb/db'
 import { errorHandler, notFoundHandler } from './middleware/errorHandler'
 import { requireApiKey, apiKeyAuthEnabled } from './middleware/apiKey'
+import { createRateLimiter } from './middleware/rateLimit'
+import { env } from './config/env'
 import { API_PREFIX, MODEL_NAME, PRODUCT_NAME, TAGLINE } from './constants'
 
 /**
@@ -35,6 +37,7 @@ export const createApp = (): Application => {
         docs: 'GET /docs',
         openapi: 'GET /openapi.json',
         generate: `POST ${API_PREFIX}/playwright/generate`,
+        analyze: `POST ${API_PREFIX}/playwright/analyze`,
         usage: `GET ${API_PREFIX}/usage`,
       },
     })
@@ -43,13 +46,18 @@ export const createApp = (): Application => {
   app.use('/', healthRoutes)
   // Public API docs (OpenAPI JSON + Redoc) — no key required for discovery.
   app.use('/', docsRoutes)
-  // Protect the generate API with an API key (no-op in open mode). /health and
-  // the root descriptor stay public so monitoring and discovery keep working.
-  app.use(`${API_PREFIX}/playwright`, requireApiKey, playwrightRoutes)
-  // Per-org knowledge base (teach + inspect), same API-key protection.
-  app.use(`${API_PREFIX}/kb`, requireApiKey, kbRoutes)
-  // Usage summary (totals, by endpoint/org/day, recent), API-key protected.
-  app.use(`${API_PREFIX}/usage`, requireApiKey, usageRoutes)
+
+  // Rate-limit + API-key guard for every protected route. /health and the root
+  // descriptor stay public so monitoring and discovery keep working.
+  const rateLimit = createRateLimiter({
+    windowMs: env.RATE_LIMIT_WINDOW_MS,
+    max: env.RATE_LIMIT_MAX,
+  })
+  app.use(`${API_PREFIX}/playwright`, rateLimit, requireApiKey, playwrightRoutes)
+  // Per-org knowledge base (teach + inspect), same protection.
+  app.use(`${API_PREFIX}/kb`, rateLimit, requireApiKey, kbRoutes)
+  // Usage summary (totals, by endpoint/org/day, recent), same protection.
+  app.use(`${API_PREFIX}/usage`, rateLimit, requireApiKey, usageRoutes)
 
   app.use(notFoundHandler)
   app.use(errorHandler)

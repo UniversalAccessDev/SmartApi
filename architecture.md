@@ -1,6 +1,8 @@
 # Smart API — Architecture
 
-> Smart API turns plain-English QA steps into clean, reliable Playwright TypeScript automation using a specialized rules engine.
+> Smart API turns plain-English QA steps into reliable browser automation —
+> emitting either clean Playwright TypeScript **or** a structured **action-JSON**
+> that its companion **Executor** can run directly, with **no AI at runtime**.
 
 This document describes how Smart API is structured, how a request flows through
 the system, and the design principles that keep it extensible. It reflects the
@@ -10,313 +12,368 @@ current codebase (`smart-api-playwright-rules-v1`).
 
 ## 1. Overview
 
-Smart API is a **stateless, deterministic** HTTP backend. It receives a test
-name, a target URL, and a list of plain-English QA steps, and returns CI-ready
-Playwright TypeScript code plus metadata (confidence, locator strategy,
-assumptions, warnings, validation).
+Smart API is a **deterministic, AI-free** automation brain. It has three parts:
+
+1. **Translator (HTTP service)** — receives a test name, target URL, and
+   plain-English steps; returns either CI-ready Playwright TypeScript **code** or
+   a structured **action-JSON** (`outputFormat: "playwright" | "actions"`), plus
+   metadata (confidence, locator strategy, assumptions, warnings, validation).
+2. **Knowledge Base (per-org)** — an embedded SQLite store that lets the engine
+   *learn each organization's locators* over time (`teach`/`learn`), so the same
+   phrasing resolves better for that org on the next run.
+3. **Executor (companion package)** — a standalone Playwright runner that consumes
+   action-JSON and *executes it against a live browser with no Claude*: a
+   self-healing locator cascade, **deterministic DOM-scoring "vision"**, and
+   selector-learning. This is what turns Smart API from a translator into a
+   complete Claude-free automation engine.
 
 Key properties:
 
-- **No external AI.** Translation is performed by an in-process rules engine.
-- **No database.** Every request is pure: the same input always yields the same
-  output.
-- **No shared state.** Horizontally scalable; any instance can serve any request.
-- **TypeScript-first.** Generated code uses `@playwright/test` and modern,
-  web-first locators.
+- **No external AI, ever.** Translation is an in-process rules engine; element
+  location is deterministic DOM scoring. There is no LLM in any runtime path.
+- **Deterministic core.** The same steps always translate to the same output.
+- **Embedded persistence, not a service dependency.** The KB and usage log live
+  in a local SQLite file (`better-sqlite3`) — no external database to operate.
+- **Two consumption modes.** Emit TypeScript for humans/CI, or action-JSON for
+  any runner (the Executor, AtwalLabs, Sachaflow, custom CI).
+
+> **Relationship to AtwalLabs.** Smart API is the deterministic brain. Its
+> DOM-scoring locator logic (`executor/domResolve.js`) was ported into AtwalLabs'
+> `visionLocator` so AtwalLabs can run **Claude-free** — native rule translation
+> + deterministic vision instead of an LLM. See `executor/README.md`.
 
 ---
 
 ## 2. Technology stack
 
-| Concern            | Choice                          |
-| ------------------ | ------------------------------- |
-| Runtime            | Node.js                         |
-| Language           | TypeScript (strict)             |
-| HTTP framework     | Express                         |
-| Request validation | Zod                             |
-| Code formatting    | Prettier (programmatic + CLI)   |
-| Config             | dotenv + Zod-validated env      |
-| CORS               | cors                            |
-| Tests              | Vitest                          |
+| Concern            | Choice                                   |
+| ------------------ | ---------------------------------------- |
+| Runtime            | Node.js                                  |
+| Language           | TypeScript (strict) — service; JS — Executor |
+| HTTP framework     | Express                                  |
+| Request validation | Zod                                      |
+| Persistence        | better-sqlite3 (KB + usage), embedded    |
+| Browser automation | Playwright (Executor only)               |
+| Code formatting    | Prettier (programmatic + CLI)            |
+| Auth               | API-key middleware (optional, env-gated) |
+| API docs           | OpenAPI 3 + Redoc (`/docs`)              |
+| Config             | dotenv + Zod-validated env               |
+| Tests              | Vitest                                   |
 
 ---
 
-## 3. Layered architecture
+## 3. The two halves
 
-Smart API is organized into clear layers with a one-directional dependency flow.
-HTTP concerns never leak into the engine, and the engine never imports Express.
+```
+  ┌──────────────────────────── Smart API service (src/) ────────────────────────────┐
+  │                                                                                   │
+  │   English steps ──► Rules engine ──► { Playwright code  |  action-JSON }          │
+  │                         ▲                                                         │
+  │                         │ per-org locator hints                                   │
+  │                    Knowledge Base (SQLite)  ◄── teach / learn                     │
+  │                                                                                   │
+  │   every request ──► usage logger (SQLite: requests + unmapped steps)              │
+  └───────────────────────────────────────────┬───────────────────────────────────────┘
+                                              │ action-JSON (outputFormat:"actions")
+                                              ▼
+  ┌──────────────────────────── Executor (executor/) ────────────────────────────────┐
+  │   action-JSON ──► resolve cascade ──► [miss] ──► domResolve (DOM-scoring vision)   │
+  │                         │                                                         │
+  │                    selector-learning cache  (.smartx-cache.json)                  │
+  │                         ▼                                                         │
+  │                    Playwright actions on a live page  (fill/click/extract/…)      │
+  └───────────────────────────────────────────────────────────────────────────────────┘
+```
+
+The service never touches a browser; the Executor never imports Express. They
+communicate only through the action-JSON contract (`executor/client.js` is a thin
+HTTP client that calls the service and returns actions).
+
+---
+
+## 4. Layered architecture (service)
+
+One-directional dependency flow. HTTP concerns never leak into the engine, and
+the engine never imports Express.
 
 ```
             HTTP edge
         ┌──────────────────────────────────────────────┐
         │  index.ts  →  app.ts                          │
-        │      (entrypoint)   (Express app factory)     │
         └───────────────┬──────────────────────────────┘
-                        │ mounts
+                        │ middleware: cors, json, usageLogger, requireApiKey
         ┌───────────────▼──────────────────────────────┐
-        │  middleware/        routes/                   │
-        │  asyncHandler       health.routes             │
-        │  errorHandler       playwright.routes ──┐     │
-        └─────────────────────────────────────────┼─────┘
-                                                  │ validate (Zod)
-        ┌─────────────────────────────────────────▼─────┐
-        │  schemas/generate.schema.ts                    │
-        └─────────────────────────────────────────┬─────┘
-                                                  │ typed input
-        ┌─────────────────────────────────────────▼─────┐
-        │  services/generator.service.ts  (orchestrator) │
-        └───────┬───────────────┬───────────────┬───────┘
-                │               │               │
-        ┌───────▼──────┐ ┌──────▼───────┐ ┌─────▼────────────┐
-        │ engine/      │ │ utils/       │ │ services/        │
-        │ rulesEngine  │ │ formatCode   │ │ validator        │
-        │ + rules/     │ │ literal,slug │ │ service          │
-        │ + codeBuilder│ │              │ │                  │
-        └──────────────┘ └──────────────┘ └──────────────────┘
+        │  routes/  health · docs · playwright · kb · usage │
+        └───────────────┬──────────────────────────────┘
+                        │ validate (Zod): generate / teach / learn
+        ┌───────────────▼──────────────────────────────┐
+        │  services/generator.service.ts (orchestrator) │
+        └───┬───────────┬───────────┬───────────┬───────┘
+            │           │           │           │
+   ┌────────▼───┐ ┌─────▼─────┐ ┌───▼────┐ ┌────▼───────┐
+   │ engine/    │ │ kb/       │ │ usage/ │ │ services/  │
+   │ rules +    │ │ per-org   │ │ logger │ │ validator  │
+   │ actions +  │ │ SQLite    │ │ +scan  │ │            │
+   │ codeBuilder│ │ learning  │ │        │ │            │
+   └────────────┘ └───────────┘ └────────┘ └────────────┘
 ```
 
 ### Layer responsibilities
 
-| Layer            | Files                                     | Responsibility                                            |
-| ---------------- | ----------------------------------------- | --------------------------------------------------------- |
-| **Entrypoint**   | `index.ts`                                | Load validated env, build the app, bind the port.         |
-| **App factory**  | `app.ts`                                  | Configure middleware, mount routes, return an `Application` (no port binding — testable). |
-| **Config**       | `config/env.ts`                           | Parse & validate `process.env` with Zod; fail fast.       |
-| **Constants**    | `constants.ts`                            | Product name, model name, tagline, API prefix.            |
-| **Middleware**   | `middleware/asyncHandler.ts`, `errorHandler.ts` | Async error forwarding; 404 + 500 JSON envelopes.   |
-| **Routes**       | `routes/health.routes.ts`, `playwright.routes.ts` | HTTP surface; parse request, call service, shape response. |
-| **Schema**       | `schemas/generate.schema.ts`              | The request contract + inferred `GenerateInput` type.     |
-| **Service**      | `services/generator.service.ts`, `validator.service.ts` | Orchestrate the pipeline; statically validate output. |
-| **Engine**       | `engine/*`                                | Deterministic translation of steps → Playwright code.     |
-| **Utils**        | `utils/formatCode.ts`, `literal.ts`, `slug.ts` | Pure helpers (formatting, safe string literals, slugs).  |
+| Layer            | Files                                              | Responsibility |
+| ---------------- | -------------------------------------------------- | -------------- |
+| **Entrypoint**   | `index.ts`                                         | Load env, build app, bind port. |
+| **App factory**  | `app.ts`                                           | Middleware, route mounting, service descriptor (no listen). |
+| **Middleware**   | `middleware/apiKey.ts`, `usageLogger.ts`, `asyncHandler.ts`, `errorHandler.ts` | Optional API-key auth; per-request usage logging; async error forwarding; JSON error envelopes. |
+| **Routes**       | `routes/health` · `docs` · `playwright` · `kb` · `usage` | HTTP surface (see §5). |
+| **Schemas**      | `schemas/generate` · `teach` · `learn`             | Zod request contracts. |
+| **Service**      | `services/generator.service.ts`, `validator.service.ts` | Orchestrate the pipeline; statically validate emitted code. |
+| **Engine**       | `engine/*`                                         | Deterministic translation → Playwright code **and** action-JSON. |
+| **Knowledge Base** | `kb/db.ts`, `kb.service.ts`, `locator.ts`        | Per-org learned locators (SQLite); phrase normalization; locator building. |
+| **Usage**        | `usage/usage.service.ts`                           | Request stats, per-org/day rollups, unmapped-step capture. |
+| **Docs**         | `openapi.ts`, `routes/docs.routes.ts`              | OpenAPI 3 spec + Redoc UI. |
+| **Utils**        | `utils/formatCode.ts`, `literal.ts`, `slug.ts`     | Pure helpers. |
 
 ---
 
-## 4. Directory map
+## 5. HTTP surface
 
-```
-src/
-  index.ts                     # Entrypoint — binds the port
-  app.ts                       # Express app factory (no listen)
-  constants.ts                 # PRODUCT_NAME, MODEL_NAME, TAGLINE, API_PREFIX
-  config/
-    env.ts                     # Zod-validated environment config
-  middleware/
-    asyncHandler.ts            # Wraps async handlers → forwards rejections
-    errorHandler.ts            # notFoundHandler (404) + errorHandler (500)
-  routes/
-    health.routes.ts           # GET /health
-    playwright.routes.ts       # POST /api/v1/playwright/generate
-  schemas/
-    generate.schema.ts         # Zod request contract → GenerateInput
-  engine/                      # ── The deterministic rules engine ──
-    types.ts                   # StepRule, RuleOutput, EngineResult, LocatorStrategy
-    rulesEngine.ts             # Runs steps through the registry, aggregates results
-    codeBuilder.ts             # Assembles the final test file from emitted lines
-    rules/
-      index.ts                 # Ordered rule registry (priority matters)
-      navigation.ts            # navigate
-      assertions.ts            # assert-url, assert-title, assert-visible,
-                               #   assert-contains-text, wait-for
-      forms.ts                 # fill, check, uncheck, select-option
-      interaction.ts           # press-key, hover, close-overlay, click
-  services/
-    generator.service.ts       # Pipeline: engine → build → format → validate
-    validator.service.ts       # Static quality checks on generated code
-  utils/
-    formatCode.ts              # Prettier (async, Prettier 3)
-    literal.ts                 # Safe single-quoted TS string literals
-    slug.ts                    # Screenshot filename slugs
+| Method & path                         | Auth | Purpose |
+| ------------------------------------- | ---- | ------- |
+| `GET /health`                         | no   | Liveness. |
+| `GET /docs`, `GET /openapi.json`      | no   | Redoc UI + OpenAPI spec (discovery). |
+| `POST /api/v1/playwright/generate`    | key  | Translate steps → code **or** action-JSON. |
+| `POST /api/v1/kb/:org/teach`          | key  | Teach an org a phrase→locator mapping. |
+| `POST /api/v1/kb/:org/learn`          | key  | Record a confirmed-working locator for an org. |
+| `GET  /api/v1/kb/:org`                | key  | Inspect an org's learned locators. |
+| `DELETE /api/v1/kb/:org`              | key  | Reset an org's KB. |
+| `GET  /api/v1/usage`                  | key  | Usage summary (calls, avg confidence, per-org/day, recent). |
+| `GET  /api/v1/usage/unmapped`         | key  | Phrasings the engine could not map (the build-out backlog). |
 
-tests/                         # Vitest suite (excluded from the build)
-  utils.test.ts  rules.test.ts  rulesEngine.test.ts
-  validator.test.ts  generator.test.ts  schema.test.ts
-```
+API-key auth (`middleware/apiKey.ts`) is enabled when a key is configured; docs
+and health stay public for discovery.
 
 ---
 
-## 5. Request lifecycle
-
-`POST /api/v1/playwright/generate`
+## 6. Request lifecycle — `POST /api/v1/playwright/generate`
 
 ```
-1. Express receives JSON  ─────────────────────────────────────────────┐
-                                                                        │
-2. generateSchema.safeParse(req.body)                                   │
-     ├─ invalid → 400 { success:false, error:"ValidationError",         │
-     │                   issues:[{path,message}] }                      │
-     └─ valid   → typed GenerateInput                                   │
-                                                                        ▼
-3. generator.service.generate(input)
-     a. runRulesEngine(steps, { closeOverlaysWithEscape })
-          for each step → first matching rule in RULES
-            ├─ match   → emit Playwright line(s), strategy, assumptions, confidence
-            └─ no match→ emit "// TODO …", record unmatched + warning
-          aggregate → bodyLines, strategies, assumptions, confidence, warnings
-     b. buildTestFile({ testName, url, bodyLines, includeScreenshots })
-          → import + test() wrapper + goto(url) + body + optional screenshot
-     c. formatCode(raw)            → Prettier (single quotes, no semicolons)
-     d. validateGeneratedCode(code)→ static checks → { valid, warnings }
-     e. assemble GenerateResult (+ JS-fallback warning if language='javascript')
-                                                                        │
-4. Route shapes the HTTP response                                       ▼
-     200 { success:true, model, tagline, language, code,
-           locatorStrategy, confidenceScore, assumptions,
-           warnings, validation, meta }
+1. Zod: generateSchema.safeParse(req.body)
+     invalid → 400 { success:false, error:"ValidationError", issues:[…] }
+     valid   → GenerateInput { testName, url, steps[], outputFormat,
+                               language, includeScreenshots, closeOverlaysWithEscape }
+     (org scope comes from the `X-Org-Id` header, not the body)
+
+2. generator.service.generate(input)
+     a. runRulesEngine(steps, ctx)         // ctx carries the org's KB resolver
+                                           //   when X-Org-Id is present
+          per step → first matching rule wins → bodyLines + strategy +
+                     assumptions + confidence   (no match → note + warning)
+     b. outputFormat === "actions"?
+          → toActions(bodyLines)            // engine/actions.ts: code → action-JSON
+          → return { actions, … }
+        else
+          → buildTestFile(...) → formatCode (Prettier) → validateGeneratedCode
+     c. record weak/unmapped steps to the usage log (diagnostics)
+
+3. Route shapes the response
+     "playwright": 200 { success, code, locatorStrategy, confidenceScore,
+                          assumptions, warnings, validation, meta }
+     "actions":    200 { success, actions, confidenceScore, assumptions,
+                          warnings, meta }
 ```
 
-Any thrown error is caught by `asyncHandler` and rendered by `errorHandler`
-as a consistent `500 { success:false, error, message }` envelope. Unknown
-routes hit `notFoundHandler` → `404`.
+`usageLogger` records method/path/org/status/latency for every request (except
+`/health`). Thrown errors → `asyncHandler` → `errorHandler` → `500` envelope;
+unknown routes → `404`.
 
 ---
 
-## 6. The rules engine (core)
+## 7. The rules engine (core)
 
-The engine is the heart of Smart API and is deliberately decoupled from HTTP.
+Deliberately decoupled from HTTP. ~100 ordered rules across focused files.
 
-### 6.1 The `StepRule` contract
+### 7.1 The `StepRule` contract
 
 ```ts
 interface StepRule {
-  name: string                                   // stable id, surfaced in meta
-  description: string                            // phrasings it handles
+  name: string
+  description: string
   apply(step: string, ctx: StepContext): RuleOutput | null
 }
-
 interface RuleOutput {
-  lines: string[]                                // Playwright statement(s)
-  strategies: LocatorStrategy[]                  // role | label | text | ...
-  assumptions: string[]                          // reviewer caveats
-  confidence: number                             // 0..1
+  lines: string[]                 // Playwright statement(s)
+  strategies: LocatorStrategy[]   // role | label | text | css | xpath | id …
+  assumptions: string[]
+  confidence: number              // 0..1
 }
 ```
 
-### 6.2 Ordered registry (`rules/index.ts`)
+### 7.2 Ordered registry (`rules/index.ts`)
 
-Steps are matched against an **ordered list**; the first rule that returns a
-non-null `RuleOutput` wins. Order encodes priority so specific rules beat the
-generic `click` fallback:
+First non-null match wins; order encodes priority (specific before the generic
+`click` fallback). Rules are grouped by concern:
 
+| File                | Handles |
+| ------------------- | ------- |
+| `navigation.ts`     | goto / navigate (URL encoding, "in a new tab", host:port). |
+| `authentication.ts` | login / sign-in / credentials / OTP phrasings. |
+| `assertions.ts`     | assert URL/title/visible/contains-text, **count** ("the cart has 3 items"), disabled/selected, redirect, page-loaded. |
+| `forms.ts`          | fill / check / uncheck / select (incl. "set X dropdown to V", "clear X and type Y"). |
+| `selectors.ts`      | role/label/text/css/xpath/id targeting + scoping (`within`, `nth`). |
+| `tables.ts`         | row/cell scoping, column headers, "in the row for X, click Y". |
+| `interaction.ts`    | press-key, hover, close-overlay, click, tabs, sliders, toggles. |
+| `natural.ts`        | freer phrasings: extract/read-as, conditional ("if the popup appears, close it"), e-commerce, explicit waits (`waitForTimeout` only for "wait N seconds"). |
+
+Shared helpers live in `engine/text.ts` (quote extraction, filler stripping,
+label cleaning, icon affordances, assertion detection). `engine/explain.ts`
+produces human-readable rationale for the chosen mapping.
+
+### 7.3 Aggregation (`rulesEngine.ts`)
+
+Per-step outputs combine into an `EngineResult`: `bodyLines`, mean `confidence`
+(unmatched = 0.1), distinct ordered `strategies`, deduped `assumptions`,
+`warnings`/`unmatchedSteps`, and `analyzed` (`{step,rule,confidence}` for `meta`).
+`normalizeStep` + `expandStep` split connectors ("enter X and click Y") and guard
+conditionals before matching.
+
+### 7.4 Guarantees baked into rules
+
+- **Web-first locators** — `getByRole`/`getByLabel`/`getByText`; brittle CSS/XPath
+  only when the step explicitly provides one.
+- **`waitForTimeout` only when asked** — "wait N seconds" emits an explicit pause;
+  "wait for X" becomes a visibility assertion.
+- **No duplicate `goto`** to the same URL; safe single-quoted literals via `lit()`.
+
+---
+
+## 8. Action-JSON model (`engine/actions.ts`)
+
+For `outputFormat: "actions"`, the engine maps generated Playwright lines into a
+runner-agnostic contract:
+
+```ts
+interface Target { by: 'text'|'css'|'xpath'|'label'|'id'|'role'; value: string
+                   role?: string; within?: Scope; nth?: number }
+
+type Action =
+  | { type:'goto'; url }            | { type:'fill'; target; value }
+  | { type:'click'; target }        | { type:'hover'; target }
+  | { type:'wait'; ms }             | { type:'press'; key }
+  | { type:'screenshot'; name? }    | { type:'assertTitle'; contains }
+  | { type:'assertUrl'; contains }  | { type:'assertVisible'; target }
+  | { type:'extract'; target; prop:'text'|'value'; as? }
+  | { type:'conditionalclick'; guard; click }
+  | { type:'note'; text }
 ```
-navigate → press-key → assert-url → assert-title → assert-visible →
-assert-contains-text → wait-for → fill → select-option → check →
-uncheck → hover → close-overlay → click
-```
 
-Why the order matters (examples):
-
-- `press-key` before `click` so **"Press Enter"** is a key press, while
-  **"Press Submit"** (not a known key) falls through to a button click.
-- assertions before `click`/`check` so **"Verify X appears"** is not mis-read as
-  an action.
-
-### 6.3 Aggregation (`rulesEngine.ts`)
-
-Per-step outputs are combined into an `EngineResult`:
-
-- **bodyLines** — concatenated Playwright statements.
-- **confidence** — mean of per-step confidences, rounded to 2 decimals
-  (unmatched steps contribute `0.1`).
-- **strategies** — distinct strategies, emitted in a canonical order to form
-  the `locatorStrategy` label (e.g. `role-label-text`).
-- **assumptions** — de-duplicated set.
-- **warnings / unmatchedSteps** — one warning per step that no rule could map.
-- **analyzed** — per-step `{ step, rule, confidence }` for response `meta`.
-
-### 6.4 Design guarantees baked into rules
-
-- **Never `page.waitForTimeout()`** — `wait for X` is translated into a
-  web-first assertion (`expect(locator).toBeVisible()`).
-- **Prefer accessible locators** — `getByRole`, `getByLabel`, `getByText`,
-  `selectOption`; XPath/brittle CSS are never generated.
-- **Honor user intent flags** — `closeOverlaysWithEscape` switches overlay
-  dismissal between the Escape key and a Close button.
-- **Safe literals** — all interpolated values pass through `lit()` so quotes and
-  backslashes can never break generated code.
+`parseTarget` is regex-literal-aware and extracts `within`/`nth` scoping. This is
+the contract the Executor (and external runners) consume.
 
 ---
 
-## 7. Code assembly & validation
+## 9. Knowledge Base (`kb/`)
 
-- **`codeBuilder.ts`** assembles a complete file: the `@playwright/test` import,
-  the `test(name, async ({ page }) => { … })` wrapper, the initial
-  `page.goto(url)`, the engine's body lines, and an optional end-of-test
-  `page.screenshot(...)`.
-- **`formatCode.ts`** runs Prettier 3 (async) with the repo style (single
-  quotes, no semicolons, width 100). On failure it returns the input unchanged
-  so cosmetics never fail a request.
-- **`validator.service.ts`** applies a list of independent checks; each failed
-  check adds a warning. Current checks: imports `@playwright/test`, has a
-  `test()`, has an `expect()`, no `waitForTimeout()`, no XPath (comment-safe
-  regex), and no leftover `TODO` steps. `valid` is `true` only when zero
-  warnings fire.
+Per-org learning so Smart API improves for each customer over time.
 
----
+- **`db.ts`** — embedded SQLite (`better-sqlite3`), three tables: `kb_entries`
+  (org, phrase, norm, locator, strategy, page, `provenance` = taught|learned,
+  `hits`), `usage_log` (per-request stats), and `unmapped_log` (org, step, rule,
+  confidence — the phrasings to build rules for).
+- **`kb.service.ts`** — phrase `normalize()` (lowercase, strip punctuation &
+  true stopwords — keeps meaningful words like "in"/"on"), match learned mappings,
+  and emit a `RuleOutput` when an org-specific locator is known.
+- **`locator.ts`** — build a Playwright locator from a stored `LocatorSpec`.
+- **`teach`** registers a phrase→locator mapping; **`learn`** records a
+  confirmed-working locator from a real run. The engine consults the org KB
+  during translation, so phrasings that once fell through get resolved next time.
 
-## 8. Configuration & runtime
-
-- **`config/env.ts`** validates `PORT` (default `4000`) and `NODE_ENV`
-  (`development` | `test` | `production`) with Zod and **exits the process** on
-  invalid config — failures surface at boot, not mid-request.
-- **`app.ts`** enables CORS, a `256kb` JSON body limit, a root `GET /` service
-  descriptor, the health and generate routers, then the 404 and error handlers
-  (registered last, as Express requires).
+The KB is the mechanism behind "Smart API learns each org's locators" — AtwalLabs
+is the first org.
 
 ---
 
-## 9. Testing strategy
+## 10. The Executor (`executor/`) — Claude-free execution
 
-The engine's purity makes it ideal for fast unit tests. The Vitest suite
-(`tests/`, excluded from the production build) covers:
+A standalone Playwright package that *runs* action-JSON. No Express, no LLM.
+
+| File           | Responsibility |
+| -------------- | -------------- |
+| `client.js`    | Thin HTTP client: `translate(steps,{apiKey,org,url})` → action-JSON. Lets any runner use Smart API without bundling the engine. |
+| `index.js`     | `execute(steps, opts)` — translate (or accept actions), then drive a Playwright page: `runAction` (click/fill/hover with scroll+retry; `extract` reads named values; `conditionalclick`), `readPage`, `resolveLearned`. |
+| `resolve.js`   | **Self-healing locator cascade.** For a `Target`, build ordered candidate locators (role-aware, by `by`), resolve `within` scope first, promote the previously-winning strategy (selector learning). Falls through to `domResolve` when the cascade misses. |
+| `domResolve.js`| **Deterministic "vision."** `BROWSER_SCORE` runs in `page.evaluate`: snapshots every interactive element with its implicit role, accessible name (aria/label/placeholder/title/text), and nearby-cell label (table forms), then *scores* each against the target intent and marks the best match. Reasons over the DOM the way Claude vision reasons over a screenshot — minus the LLM. |
+| `cache.js`     | Selector-learning cache (`.smartx-cache.json`) — remembers which strategy resolved a target per host, promoted on the next run. |
+| `cli.js`       | CLI runner with a result report. |
+
+`domResolve` is the long-tail catch the simple cascade can't reach (e.g. inputs
+with no `<label>`, only a sibling table-cell label). Its scoring logic is the
+same one ported into AtwalLabs' `visionLocator` for Claude-free element location.
+
+---
+
+## 11. Code assembly & validation (service)
+
+- **`codeBuilder.ts`** — assembles the file: `@playwright/test` import, the
+  `test(name, async ({ page }) => { … })` wrapper, initial `page.goto(url)`,
+  engine body lines, optional end screenshot. Dedupes a redundant `goto`.
+- **`formatCode.ts`** — Prettier 3 (single quotes, no semicolons, width 100);
+  on failure returns input unchanged so cosmetics never fail a request.
+- **`validator.service.ts`** — independent checks (imports `@playwright/test`,
+  has `test()`/`expect()`, no `waitForTimeout` unless intended, no stray XPath,
+  no leftover TODO). `valid` is true only when zero warnings fire.
+
+---
+
+## 12. Configuration & runtime
+
+- **`config/env.ts`** — Zod-validates `PORT`, `NODE_ENV`, optional API key, KB
+  path; **exits on invalid config** (fail at boot, not mid-request).
+- **`app.ts`** — CORS, `256kb` JSON limit, usage logger, a root service
+  descriptor, then health/docs (public) and key-guarded playwright/kb/usage
+  routers, then 404 + error handlers (last, as Express requires).
+
+---
+
+## 13. Testing strategy
+
+Vitest (`tests/`, excluded from build). Engine purity makes tests fast:
 
 - **Utilities** — `lit` escaping, `slugify`.
-- **Rules** — each rule's output and the ordering edge cases.
-- **Engine** — confidence averaging/rounding, strategy ordering, assumption
-  dedup, unmatched handling.
-- **Validator** — every check, including the regression that a `//` code comment
-  is not mistaken for XPath.
-- **Pipeline** — formatting, screenshots, the Escape flag, JS→TS fallback, and
-  **determinism** (identical input → identical output).
-- **Schema** — valid payloads, defaults, and each rejection case.
-
-Run with `npm test` (or `npm run test:watch`).
+- **Rules** — each rule's output and ordering edge cases (`quality-gaps.test.ts`
+  pins real bugs: quote stripping, article stripping, count assertions,
+  multi-action splitting, conditional guards, honest non-mapping).
+- **Engine** — confidence averaging, strategy ordering, assumption dedup.
+- **Validator** — every check (incl. the `//`-is-not-XPath regression).
+- **Pipeline** — formatting, screenshots, action-JSON output, determinism.
+- **Schema** — valid payloads, defaults, rejections.
 
 ---
 
-## 10. Extensibility
+## 14. Extensibility
 
-The system is designed so the most common change — teaching Smart API a new
-phrasing — touches the fewest files.
+The most common change — teaching a new phrasing — touches the fewest files:
 
-**Add a new behavior:**
+1. Write a `StepRule` in the right `engine/rules/*.ts`.
+2. Register it in `rules/index.ts` at the correct priority.
+3. Add a test in `tests/`.
 
-1. Write a `StepRule` in the appropriate `engine/rules/*.ts` file (or a new file).
-2. Register it in `engine/rules/index.ts` at the correct priority.
-3. Add a test in `tests/rules.test.ts`.
-
-No routes, schemas, services, or the engine core need to change.
-
-**Other extension points:**
-
-- **Tighten quality** — add a check to `validator.service.ts`.
-- **New endpoints** — add a router under `routes/` and mount it in `app.ts`.
-- **Swap the brain** — because the engine sits behind
-  `generator.service.generate()`, a future AI provider could be introduced
-  behind the same interface without changing the HTTP layer. Today everything is
-  deterministic and offline.
+Other extension points: a new `validator` check; a new router mounted in `app.ts`;
+a new locator strategy in `domResolve`/`resolve` (helps every runner at once);
+teach the KB instead of writing a rule when a mapping is org-specific.
 
 ---
 
-## 11. Design principles (summary)
+## 15. Design principles (summary)
 
-1. **Determinism over cleverness** — reproducible output is a feature.
-2. **One-directional dependencies** — HTTP → service → engine → utils; never back.
-3. **Pure core, thin edges** — business logic in pure modules, side effects at
-   the boundary (`index.ts`, Express).
-4. **Fail fast, fail clearly** — Zod at config and request boundaries; consistent
-   JSON error envelopes.
-5. **Extensible by addition** — new rules slot into an ordered registry; nothing
-   else changes.
-6. **Quality is enforced, not assumed** — generated code is validated and the
-   engine itself is unit-tested.
+1. **No AI at runtime** — rules for translation, DOM scoring for location.
+   Reproducible, auditable, free.
+2. **Determinism over cleverness** — identical input → identical output.
+3. **One-directional dependencies** — HTTP → service → engine → utils; the
+   Executor depends on the action-JSON contract, nothing more.
+4. **Learn per org** — the KB makes the tool better for each customer over time
+   without changing code.
+5. **Extensible by addition** — rules slot into an ordered registry; vision gains
+   slot into one scorer that every consumer inherits.
+6. **Quality is enforced, not assumed** — emitted code is validated; the engine
+   and scorer are unit-tested and swept against real DOM patterns.
