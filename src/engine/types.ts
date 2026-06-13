@@ -70,6 +70,10 @@ export interface AnalyzedStep {
   rationale: string
   /** Concrete fallback locators to try if the primary one does not match. */
   alternatives: string[]
+  /** Reviewer caveats specific to this step (subset of the aggregate assumptions). */
+  assumptions: string[]
+  /** Warnings specific to this step (e.g. unmapped). Empty when clean. */
+  warnings: string[]
 }
 
 /** Aggregate result of running the engine over all steps. */

@@ -7,6 +7,7 @@ import { formatCode } from '../utils/formatCode'
 import { validateGeneratedCode, ValidationResult } from './validator.service'
 import { AnalyzedStep, StepContext } from '../engine/types'
 import { ConfidenceLevel, levelFor } from '../engine/explain'
+import { assessReview, ReviewReason, StepConfidence } from './review.service'
 
 /** Interpretable confidence summary for the whole generated test. */
 export interface ConfidenceSummary {
@@ -33,6 +34,12 @@ export interface GenerateResult {
   assumptions: string[]
   warnings: string[]
   validation: ValidationResult
+  /** Per-step confidence + the signals a reviewer needs (Phase 2). */
+  stepConfidence: StepConfidence[]
+  /** True when at least one review reason fired. */
+  requiresReview: boolean
+  /** Why review is (or is not) recommended. */
+  reviewReasons: ReviewReason[]
   meta: {
     stepsAnalyzed: AnalyzedStep[]
     unmatchedSteps: string[]
@@ -99,6 +106,8 @@ export const generate = async (
 
   const locatorStrategy = engine.strategies.length > 0 ? engine.strategies.join('-') : 'none'
 
+  const review = assessReview(engine.analyzed, validation)
+
   return {
     code,
     actions,
@@ -109,6 +118,9 @@ export const generate = async (
     assumptions: engine.assumptions,
     warnings,
     validation,
+    stepConfidence: review.stepConfidence,
+    requiresReview: review.requiresReview,
+    reviewReasons: review.reviewReasons,
     meta: {
       stepsAnalyzed: engine.analyzed,
       unmatchedSteps: engine.unmatchedSteps,

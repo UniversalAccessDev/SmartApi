@@ -142,6 +142,8 @@ export const runRulesEngine = (steps: string[], baseCtx: StepContext): EngineRes
         code: [],
         rationale: 'No rule matched this phrasing; left as a TODO for manual translation.',
         alternatives: [],
+        assumptions: [],
+        warnings: [`Step could not be mapped to a Playwright action: "${step}"`],
       })
       confidences.push(0.1)
       unmatchedSteps.push(step)
@@ -168,6 +170,8 @@ export const runRulesEngine = (steps: string[], baseCtx: StepContext): EngineRes
       code: output.lines,
       rationale,
       alternatives,
+      assumptions: output.assumptions,
+      warnings: [],
     })
     confidences.push(output.confidence)
   }
