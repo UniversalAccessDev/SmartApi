@@ -15,6 +15,9 @@ const EnvSchema = z.object({
   API_KEYS: z.string().default(''),
   // SQLite file for the per-org knowledge base. ':memory:' for ephemeral.
   KB_DB_PATH: z.string().default('data/smart-api.db'),
+  // Rate limiting for the key-protected API routes (fixed window, per key/IP).
+  RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60_000),
+  RATE_LIMIT_MAX: z.coerce.number().int().positive().default(120),
 })
 
 const parsed = EnvSchema.safeParse(process.env)
