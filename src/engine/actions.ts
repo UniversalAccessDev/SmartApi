@@ -25,6 +25,8 @@ export interface Scope {
 export interface Target {
   by: By
   value: string
+  /** ARIA role of the element, when known (e.g. "button", "link", "row"). */
+  role?: string
   /** Index when the locator was scoped with .nth()/.first()/.last() (-1 = last). */
   nth?: number
   /** Container the element is searched within (preserves row/card scoping). */

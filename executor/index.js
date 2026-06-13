@@ -4,6 +4,7 @@ const path = require('path')
 const { chromium } = require('playwright')
 const { resolve } = require('./resolve')
 const { load: loadCache } = require('./cache')
+const { validateActions, SCHEMA_VERSION } = require('./validate')
 
 // Smart API translation engine (built output). The executor consumes its
 // action-JSON + per-step alternatives — no Claude anywhere in this pipeline.
@@ -226,7 +227,16 @@ async function execute(steps, opts = {}) {
         results.push({ step, type: '-', status: 'unmapped', detail: 'no action produced' })
         continue
       }
-      for (const action of actions) {
+      // Validate action-JSON before running it: skip unknown types (future-safe),
+      // refuse to run malformed known actions.
+      const report = validateActions(actions)
+      for (const t of report.unknownTypes) {
+        results.push({ step, type: t, status: 'skipped', detail: `unknown action type (action schema v${SCHEMA_VERSION})` })
+      }
+      for (const issue of report.issues) {
+        results.push({ step, type: issue.type, status: 'invalid', detail: `action-JSON validation failed: ${issue.message}` })
+      }
+      for (const action of report.valid) {
         results.push({ step, ...(await runAction(page, action, rec, cache)) })
       }
     }
